@@ -1,484 +1,37 @@
 """
-FalconX — Palantir Gotham-style OSINT Investigation Dashboard
-Stack: Streamlit + Neo4j AuraDB + PyVis
+FalconX — Palantir Gotham-style OSINT Dashboard
 """
 
 import json
-import math
+import os
+import tempfile
 import streamlit as st
 import streamlit.components.v1 as components
 from neo4j import GraphDatabase
 from pyvis.network import Network
-import tempfile, os
 
-# ── Page config ──────────────────────────────────────────────────────────────────
-st.set_page_config(
-    page_title="FalconX // OSINT",
-    page_icon="🦅",
-    layout="wide",
-    initial_sidebar_state="collapsed",
-)
+# ── Page config (minimal — we own 100% of the UI) ───────────────────────────────
+st.set_page_config(page_title="FalconX", page_icon="🦅", layout="wide")
 
-# ── Global CSS — Palantir Gotham HUD aesthetic ───────────────────────────────────
+# Strip ALL Streamlit chrome so our HTML shell is flush
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Barlow+Condensed:wght@300;400;500;600;700&family=Barlow:wght@300;400;500&display=swap');
-
-/* ── Reset & base ── */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html, body, [class*="css"], .stApp {
-  background: #070b10 !important;
-  color: #8fa8c0 !important;
-  font-family: 'Barlow', sans-serif !important;
-}
-
-/* ── Scrollbar ── */
-::-webkit-scrollbar { width: 4px; height: 4px; }
-::-webkit-scrollbar-track { background: #0a0f16; }
-::-webkit-scrollbar-thumb { background: #1e3448; border-radius: 2px; }
-
-/* ── Hide Streamlit chrome ── */
-#MainMenu, footer, header, [data-testid="stToolbar"],
-[data-testid="stDecoration"], [data-testid="stStatusWidget"] { display: none !important; }
-[data-testid="collapsedControl"] { display: none !important; }
-.block-container { padding: 0 !important; max-width: 100% !important; }
-section[data-testid="stSidebar"] { display: none !important; }
-
-/* ── HUD shell ── */
-.hud-shell {
-  display: grid;
-  grid-template-rows: 48px 1fr;
-  grid-template-columns: 280px 1fr 300px;
-  height: 100vh;
-  overflow: hidden;
-  background:
-    linear-gradient(rgba(0,168,255,0.015) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0,168,255,0.015) 1px, transparent 1px);
-  background-size: 40px 40px;
-  background-color: #070b10;
-}
-
-/* ── Top bar ── */
-.top-bar {
-  grid-column: 1 / -1;
-  display: flex;
-  align-items: center;
-  gap: 0;
-  background: #080d14;
-  border-bottom: 1px solid #0d2035;
-  padding: 0 20px;
-  position: relative;
-  z-index: 100;
-}
-.top-bar::after {
-  content: '';
-  position: absolute;
-  bottom: 0; left: 0; right: 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, #00a8ff44, #00a8ff, #00a8ff44, transparent);
-}
-.logo-block {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding-right: 24px;
-  border-right: 1px solid #0d2035;
-  margin-right: 24px;
-}
-.logo-icon {
-  width: 26px; height: 26px;
-  background: linear-gradient(135deg, #00a8ff, #0066cc);
-  clip-path: polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%);
-  display: flex; align-items: center; justify-content: center;
-  font-size: 12px;
-}
-.logo-text {
-  font-family: 'Barlow Condensed', sans-serif;
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: 4px;
-  color: #e0f0ff;
-  text-transform: uppercase;
-}
-.logo-sub {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 9px;
-  color: #00a8ff88;
-  letter-spacing: 2px;
-  margin-top: 1px;
-}
-.top-stat {
-  display: flex;
-  flex-direction: column;
-  padding: 0 20px;
-  border-right: 1px solid #0d2035;
-}
-.top-stat-val {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 16px;
-  font-weight: 600;
-  color: #00a8ff;
-  line-height: 1;
-}
-.top-stat-lbl {
-  font-size: 9px;
-  color: #3a6080;
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  margin-top: 2px;
-}
-.top-status {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 10px;
-  color: #3a6080;
-  letter-spacing: 1px;
-}
-.dot-live { width: 6px; height: 6px; border-radius: 50%; background: #00e676; animation: blink 1.4s infinite; }
-.dot-err  { width: 6px; height: 6px; border-radius: 50%; background: #ff3d3d; }
-@keyframes blink { 0%,100% { opacity:1; } 50% { opacity:.3; } }
-.classification {
-  margin-left: 24px;
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 9px;
-  letter-spacing: 3px;
-  color: #ff6b00;
-  border: 1px solid #ff6b0044;
-  padding: 2px 8px;
-  border-radius: 2px;
-  background: #ff6b0008;
-}
-
-/* ── Left panel ── */
-.left-panel {
-  grid-row: 2;
-  background: #080d14;
-  border-right: 1px solid #0d2035;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-}
-.panel-section {
-  border-bottom: 1px solid #0a1a28;
-  padding: 14px 16px;
-}
-.panel-title {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 9px;
-  letter-spacing: 3px;
-  color: #00a8ff66;
-  text-transform: uppercase;
-  margin-bottom: 12px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.panel-title::before {
-  content: '';
-  width: 12px; height: 1px;
-  background: #00a8ff44;
-}
-
-/* ── Filter controls ── */
-.filter-row { margin-bottom: 10px; }
-.filter-label {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 9px;
-  color: #3a6080;
-  letter-spacing: 1px;
-  margin-bottom: 5px;
-  text-transform: uppercase;
-}
-
-/* ── Legend ── */
-.legend-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 0;
-  border-bottom: 1px solid #0a1826;
-  font-size: 11px;
-  color: #6a90a8;
-}
-.legend-item:last-child { border-bottom: none; }
-.l-icon {
-  width: 28px; height: 20px;
-  display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0;
-}
-.l-circle { width: 16px; height: 16px; border-radius: 50%; border: 2px solid #00a8ff; background: #00a8ff18; }
-.l-rect   { width: 22px; height: 12px; border: 2px solid #ff9500; background: #ff950018; border-radius: 2px; }
-.l-diamond {
-  width: 14px; height: 14px;
-  border: 2px solid #00e676;
-  background: #00e67618;
-  transform: rotate(45deg);
-}
-.legend-count {
-  margin-left: auto;
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 10px;
-  color: #1e4060;
-}
-
-/* ── Metric cards ── */
-.metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.metric-card {
-  background: #0a1420;
-  border: 1px solid #0d2035;
-  border-radius: 3px;
-  padding: 10px 12px;
-  position: relative;
-  overflow: hidden;
-}
-.metric-card::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, #00a8ff44, transparent);
-}
-.metric-val {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 20px;
-  font-weight: 600;
-  color: #00a8ff;
-  line-height: 1;
-}
-.metric-lbl {
-  font-size: 9px;
-  color: #2a5070;
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  margin-top: 4px;
-}
-
-/* ── Upload zone ── */
-.upload-hint {
-  border: 1px dashed #0d2035;
-  background: #0a1420;
-  border-radius: 4px;
-  padding: 16px;
-  text-align: center;
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 10px;
-  color: #2a5070;
-  letter-spacing: 1px;
-}
-
-/* ── Center graph area ── */
-.graph-area {
-  grid-row: 2;
-  position: relative;
-  overflow: hidden;
-  background: #070b10;
-}
-.graph-overlay-tl {
-  position: absolute; top: 12px; left: 12px;
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 9px;
-  color: #1e4060;
-  letter-spacing: 1px;
-  z-index: 10;
-  pointer-events: none;
-}
-.graph-overlay-br {
-  position: absolute; bottom: 12px; right: 12px;
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 9px;
-  color: #1e4060;
-  letter-spacing: 1px;
-  z-index: 10;
-  pointer-events: none;
-  text-align: right;
-}
-/* Corner brackets */
-.graph-area::before, .graph-area::after {
-  content: ''; position: absolute; width: 20px; height: 20px; z-index: 5; pointer-events: none;
-}
-.graph-area::before { top: 8px; left: 8px; border-top: 1px solid #00a8ff44; border-left: 1px solid #00a8ff44; }
-.graph-area::after  { bottom: 8px; right: 8px; border-bottom: 1px solid #00a8ff44; border-right: 1px solid #00a8ff44; }
-
-/* ── Right panel — entity detail ── */
-.right-panel {
-  grid-row: 2;
-  background: #080d14;
-  border-left: 1px solid #0d2035;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-}
-.entity-card {
-  background: #0a1520;
-  border: 1px solid #0d2035;
-  border-radius: 3px;
-  margin: 12px;
-  overflow: hidden;
-}
-.entity-card-header {
-  background: #0d1e30;
-  padding: 10px 14px;
-  border-bottom: 1px solid #0d2035;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.entity-type-badge {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 8px;
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  padding: 2px 7px;
-  border-radius: 2px;
-}
-.badge-user    { background: #00a8ff18; border: 1px solid #00a8ff44; color: #00a8ff; }
-.badge-tweet   { background: #ff950018; border: 1px solid #ff950044; color: #ff9500; }
-.badge-hashtag { background: #00e67618; border: 1px solid #00e67644; color: #00e676; }
-.entity-label {
-  font-family: 'Barlow Condensed', sans-serif;
-  font-size: 14px;
-  font-weight: 600;
-  color: #c0d8f0;
-  margin-left: 4px;
-}
-.entity-body { padding: 14px; }
-.entity-field { margin-bottom: 12px; }
-.entity-field-key {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 8px;
-  color: #2a5070;
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  margin-bottom: 4px;
-}
-.entity-field-val {
-  font-size: 12px;
-  color: #8fa8c0;
-  line-height: 1.5;
-  word-break: break-word;
-}
-.entity-field-val.mono {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 11px;
-}
-
-/* ── Empty state ── */
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  gap: 8px;
-  color: #1a3a50;
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 10px;
-  letter-spacing: 2px;
-  text-align: center;
-  padding: 24px;
-}
-.empty-icon {
-  font-size: 28px;
-  margin-bottom: 8px;
-  opacity: 0.3;
-}
-
-/* ── Graph tabs inside graph area ── */
-.graph-tab-bar {
-  display: flex;
-  gap: 0;
-  border-bottom: 1px solid #0d2035;
-  background: #080d14;
-}
-.graph-tab {
-  padding: 8px 20px;
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 9px;
-  letter-spacing: 2px;
-  color: #2a5070;
-  cursor: pointer;
-  border-right: 1px solid #0d2035;
-  text-transform: uppercase;
-  transition: all .15s;
-}
-.graph-tab.active {
-  color: #00a8ff;
-  background: #00a8ff08;
-  border-bottom: 1px solid #00a8ff;
-}
-
-/* ── Action button ── */
-.action-btn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 14px;
-  background: #0a1a2a;
-  border: 1px solid #0d2a40;
-  border-radius: 3px;
-  color: #00a8ff;
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 10px;
-  letter-spacing: 1px;
-  cursor: pointer;
-  width: 100%;
-  margin-bottom: 6px;
-  transition: all .15s;
-}
-.action-btn:hover { background: #0d2235; border-color: #00a8ff44; }
-.action-btn.danger { color: #ff4444; border-color: #ff444422; }
-.action-btn.success { color: #00e676; border-color: #00e67622; }
-
-/* ── Streamlit widget overrides ── */
-.stButton > button {
-  background: #0a1a2a !important;
-  border: 1px solid #0d2a40 !important;
-  color: #00a8ff !important;
-  font-family: 'IBM Plex Mono', monospace !important;
-  font-size: 10px !important;
-  letter-spacing: 1px !important;
-  border-radius: 3px !important;
-  padding: 6px 14px !important;
-  width: 100%;
-  text-transform: uppercase;
-}
-.stButton > button:hover { background: #0d2235 !important; border-color: #00a8ff44 !important; }
-.stTextInput > div > div > input {
-  background: #0a1420 !important;
-  border: 1px solid #0d2035 !important;
-  border-radius: 3px !important;
-  color: #8fa8c0 !important;
-  font-family: 'IBM Plex Mono', monospace !important;
-  font-size: 11px !important;
-  padding: 6px 10px !important;
-}
-.stSelectbox > div > div {
-  background: #0a1420 !important;
-  border: 1px solid #0d2035 !important;
-  border-radius: 3px !important;
-  color: #8fa8c0 !important;
-  font-family: 'IBM Plex Mono', monospace !important;
-  font-size: 11px !important;
-}
-.stSlider > div { padding: 0 !important; }
-.stCheckbox > label { color: #6a90a8 !important; font-size: 11px !important; }
-.stFileUploader { background: transparent !important; }
-.stFileUploader > div { background: #0a1420 !important; border: 1px dashed #0d2035 !important; border-radius: 3px !important; }
-.stFileUploader label { color: #2a5070 !important; font-family: 'IBM Plex Mono', monospace !important; font-size: 10px !important; }
-.stAlert { background: #0a1420 !important; border: 1px solid #0d2035 !important; border-radius: 3px !important; }
-.stSuccess { border-left: 2px solid #00e676 !important; }
-.stError   { border-left: 2px solid #ff4444 !important; }
-.stWarning { border-left: 2px solid #ff9500 !important; }
-div[data-testid="stVerticalBlock"] > div { gap: 6px !important; }
-.stMarkdown p { font-size: 12px; color: #6a90a8; }
+  #MainMenu, footer, header,
+  [data-testid="stToolbar"],
+  [data-testid="stDecoration"],
+  [data-testid="stStatusWidget"],
+  [data-testid="collapsedControl"],
+  section[data-testid="stSidebar"] { display:none!important; }
+  .block-container { padding:0!important; max-width:100%!important; }
+  body, .stApp { background:#f0f2f5!important; overflow:hidden!important; }
 </style>
 """, unsafe_allow_html=True)
 
 
-# ── Neo4j ─────────────────────────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════════════
+# BACKEND — Neo4j + Parsing
+# ════════════════════════════════════════════════════════════════════════════════
+
 @st.cache_resource(show_spinner=False)
 def get_driver():
     return GraphDatabase.driver(
@@ -494,8 +47,6 @@ def test_connection():
     except Exception as e:
         return False, str(e)
 
-
-# ── Parsing ───────────────────────────────────────────────────────────────────────
 def safe_get(d, *keys, default=None):
     for k in keys:
         if not isinstance(d, dict):
@@ -522,7 +73,7 @@ def parse_ndjson(raw_bytes):
             obj = json.loads(line)
         except json.JSONDecodeError:
             continue
-        data = obj.get("data", obj)
+        data        = obj.get("data", obj)
         tweet_id    = safe_get(data, "legacy", "id_str") or safe_get(data, "id_str", default="")
         content     = (safe_get(data, "note_tweet", "note_tweet_results", "result", "text")
                        or safe_get(data, "legacy", "full_text") or "")
@@ -536,35 +87,27 @@ def parse_ndjson(raw_bytes):
         records.append({
             "tweet_id": tweet_id, "content": content,
             "screen_name": screen_name, "hashtags": hashtags,
-            "snippet": (content[:72] + "…") if len(content) > 72 else content,
+            "snippet": (content[:80] + "…") if len(content) > 80 else content,
         })
     return records
 
-
-# ── Neo4j write ───────────────────────────────────────────────────────────────────
-MERGE_QUERY = """
+MERGE_Q = """
 UNWIND $rows AS row
   MERGE (u:User {screen_name: row.screen_name})
   MERGE (t:Tweet {tweet_id: row.tweet_id})
     ON CREATE SET t.content = row.content, t.snippet = row.snippet
   MERGE (u)-[:AUTHORED]->(t)
   WITH t, row
-  UNWIND CASE WHEN size(row.hashtags) = 0 THEN [null] ELSE row.hashtags END AS tag
-    CALL {
-      WITH t, tag
-      WITH t, tag WHERE tag IS NOT NULL
-      MERGE (h:Hashtag {name: tag})
-      MERGE (t)-[:HAS_TAG]->(h)
-    }
+  UNWIND CASE WHEN size(row.hashtags)=0 THEN [null] ELSE row.hashtags END AS tag
+    CALL { WITH t,tag WITH t,tag WHERE tag IS NOT NULL
+           MERGE (h:Hashtag {name:tag}) MERGE (t)-[:HAS_TAG]->(h) }
 """
 
 def push_to_neo4j(records):
     with get_driver().session() as s:
-        s.run(MERGE_QUERY, rows=records)
+        s.run(MERGE_Q, rows=records)
 
-
-# ── Neo4j read ────────────────────────────────────────────────────────────────────
-FETCH_QUERY = """
+FETCH_Q = """
 MATCH (u:User)-[:AUTHORED]->(t:Tweet)
 OPTIONAL MATCH (t)-[:HAS_TAG]->(h:Hashtag)
 RETURN u.screen_name AS screen_name,
@@ -578,74 +121,72 @@ LIMIT $limit
 @st.cache_data(ttl=30, show_spinner=False)
 def fetch_graph(limit=300):
     with get_driver().session() as s:
-        return [dict(r) for r in s.run(FETCH_QUERY, limit=limit)]
+        return [dict(r) for r in s.run(FETCH_Q, limit=limit)]
 
 
-# ── PyVis graph builder ───────────────────────────────────────────────────────────
-def build_pyvis(rows, show_hashtags=True, filter_user="", layout_mode="force"):
-    net = Network(
-        height="100%",
-        width="100%",
-        bgcolor="#070b10",
-        font_color="#8fa8c0",
-        directed=True,
-    )
+# ════════════════════════════════════════════════════════════════════════════════
+# GRAPH BUILDER → returns HTML string
+# ════════════════════════════════════════════════════════════════════════════════
 
-    # Physics presets
-    if layout_mode == "hierarchical":
-        net.set_options("""
-        {
-          "layout": { "hierarchical": {
-            "enabled": true,
-            "direction": "UD",
-            "sortMethod": "directed",
-            "levelSeparation": 120,
-            "nodeSpacing": 160,
-            "treeSpacing": 200
-          }},
-          "physics": { "enabled": false },
-          "edges": { "smooth": { "type": "cubicBezier", "forceDirection": "vertical" } }
-        }
-        """)
+def build_graph_html(rows, show_hashtags=True, filter_user="", layout="force", theme="light"):
+    if theme == "dark":
+        bg         = "#070b10"
+        node_bg_u  = "#0d2235";  node_bd_u = "#2196f3"
+        node_bg_t  = "#150e00";  node_bd_t = "#ff9500"
+        node_bg_h  = "#001a08";  node_bd_h = "#00e676"
+        font_u     = "#2196f3";  font_t = "#ff9500";  font_h = "#00e676"
+        edge_col   = "#1a3a50"
     else:
-        net.set_options("""
-        {
-          "physics": {
-            "enabled": true,
-            "stabilization": { "iterations": 200, "fit": true },
-            "barnesHut": {
-              "gravitationalConstant": -8000,
-              "centralGravity": 0.3,
-              "springLength": 160,
-              "springConstant": 0.04,
-              "damping": 0.2,
-              "avoidOverlap": 0.8
-            }
-          },
-          "edges": {
-            "smooth": { "type": "dynamic" },
-            "arrows": { "to": { "enabled": true, "scaleFactor": 0.6 } },
-            "color": { "color": "#0d2a40", "highlight": "#00a8ff", "hover": "#00a8ff66" },
-            "width": 1,
-            "selectionWidth": 2,
-            "hoverWidth": 1.5
-          },
-          "nodes": {
-            "borderWidth": 1,
-            "borderWidthSelected": 2,
-            "shadow": { "enabled": true, "color": "rgba(0,168,255,0.15)", "size": 8, "x": 0, "y": 0 }
-          },
-          "interaction": {
-            "hover": true,
-            "tooltipDelay": 100,
-            "navigationButtons": false,
-            "keyboard": { "enabled": true }
-          }
-        }
-        """)
+        bg         = "#f0f2f5"
+        node_bg_u  = "#dbeafe";  node_bd_u = "#1d6fa4"
+        node_bg_t  = "#fff7e6";  node_bd_t = "#b45309"
+        node_bg_h  = "#dcfce7";  node_bd_h = "#15803d"
+        font_u     = "#1d4ed8";  font_t = "#92400e";  font_h = "#166534"
+        edge_col   = "#94a3b8"
 
-    seen_nodes = set()
-    seen_edges = set()
+    net = Network(height="100%", width="100%", bgcolor=bg,
+                  font_color="#334155" if theme=="light" else "#8fa8c0",
+                  directed=True)
+
+    if layout == "hierarchical":
+        net.set_options(json.dumps({
+            "layout": {"hierarchical": {
+                "enabled": True, "direction": "UD", "sortMethod": "directed",
+                "levelSeparation": 130, "nodeSpacing": 150, "treeSpacing": 180
+            }},
+            "physics": {"enabled": False},
+            "edges": {"smooth": {"type": "cubicBezier", "forceDirection": "vertical"}}
+        }))
+    else:
+        net.set_options(json.dumps({
+            "physics": {
+                "enabled": True,
+                "stabilization": {"iterations": 250, "fit": True},
+                "barnesHut": {
+                    "gravitationalConstant": -9000,
+                    "centralGravity": 0.25,
+                    "springLength": 180,
+                    "springConstant": 0.035,
+                    "damping": 0.25,
+                    "avoidOverlap": 1.0
+                }
+            },
+            "edges": {
+                "smooth": {"type": "dynamic"},
+                "arrows": {"to": {"enabled": True, "scaleFactor": 0.6}},
+                "color": {"color": edge_col, "highlight": "#2196f3", "hover": "#2196f388"},
+                "width": 1, "selectionWidth": 2, "hoverWidth": 1.5
+            },
+            "nodes": {
+                "borderWidth": 1, "borderWidthSelected": 2,
+                "shadow": {"enabled": True,
+                           "color": "rgba(33,150,243,0.18)" if theme=="dark" else "rgba(0,0,0,0.08)",
+                           "size": 8, "x": 0, "y": 2}
+            },
+            "interaction": {"hover": True, "tooltipDelay": 80, "navigationButtons": False}
+        }))
+
+    seen_n, seen_e = set(), set()
 
     for row in rows:
         sn      = row["screen_name"]
@@ -658,513 +199,1075 @@ def build_pyvis(rows, show_hashtags=True, filter_user="", layout_mode="force"):
             continue
 
         uid = f"user_{sn}"
-        if uid not in seen_nodes:
-            seen_nodes.add(uid)
-            net.add_node(
-                uid,
+        if uid not in seen_n:
+            seen_n.add(uid)
+            net.add_node(uid,
                 label=f"@{sn}",
-                title=f"<div style='font-family:monospace;font-size:11px;color:#c0d8f0;padding:6px'>"
-                      f"<b style='color:#00a8ff'>USER</b><br>@{sn}</div>",
-                shape="dot",
-                size=18,
-                color={"background": "#0d2235", "border": "#00a8ff",
-                       "highlight": {"background": "#0d2a40", "border": "#60c8ff"},
-                       "hover":     {"background": "#0d2a40", "border": "#60c8ff"}},
-                font={"color": "#00a8ff", "size": 12, "face": "IBM Plex Mono"},
-                level=0,
-            )
+                title=f"<b style='color:{node_bd_u}'>ACTOR</b><br>@{sn}",
+                shape="dot", size=20, level=0,
+                color={"background": node_bg_u, "border": node_bd_u,
+                       "highlight": {"background": node_bg_u, "border": node_bd_u},
+                       "hover":     {"background": node_bg_u, "border": node_bd_u}},
+                font={"color": font_u, "size": 12, "face": "IBM Plex Mono, monospace", "bold": True})
+
+        # Wrap snippet to ~26 chars/line
+        words = snippet.split()
+        lines, cur = [], ""
+        for w in words:
+            if len(cur) + len(w) > 26 and cur:
+                lines.append(cur); cur = w
+            else:
+                cur = (cur + " " + w).strip()
+        if cur: lines.append(cur)
+        label_wrapped = "\n".join(lines[:3])
 
         twid = f"tweet_{tid}"
-        if twid not in seen_nodes:
-            seen_nodes.add(twid)
-            # Wrap label at ~28 chars
-            words = snippet.split()
-            lines, cur = [], ""
-            for w in words:
-                if len(cur) + len(w) + 1 > 28 and cur:
-                    lines.append(cur)
-                    cur = w
-                else:
-                    cur = (cur + " " + w).strip()
-            if cur:
-                lines.append(cur)
-            wrapped = "\n".join(lines[:3])
+        if twid not in seen_n:
+            seen_n.add(twid)
+            net.add_node(twid,
+                label=label_wrapped,
+                title=f"<b style='color:{node_bd_t}'>ARTIFACT</b><br>"
+                      f"<span style='color:#555'>@{sn}</span><br><br>"
+                      f"<span style='font-size:12px'>{content[:280]}</span>",
+                shape="box", size=14, level=1,
+                color={"background": node_bg_t, "border": node_bd_t,
+                       "highlight": {"background": node_bg_t, "border": node_bd_t},
+                       "hover":     {"background": node_bg_t, "border": node_bd_t}},
+                font={"color": font_t, "size": 9, "face": "IBM Plex Mono, monospace"},
+                margin={"top":6,"right":8,"bottom":6,"left":8},
+                widthConstraint={"minimum": 90, "maximum": 160})
 
-            net.add_node(
-                twid,
-                label=wrapped,
-                title=f"<div style='font-family:monospace;font-size:11px;color:#c0d8f0;padding:6px;max-width:260px'>"
-                      f"<b style='color:#ff9500'>TWEET</b><br><span style='color:#8fa8c0'>{content[:300]}</span></div>",
-                shape="box",
-                size=14,
-                color={"background": "#150e00", "border": "#ff9500",
-                       "highlight": {"background": "#1e1400", "border": "#ffb840"},
-                       "hover":     {"background": "#1e1400", "border": "#ffb840"}},
-                font={"color": "#ff9500", "size": 9, "face": "IBM Plex Mono"},
-                margin=6,
-                level=1,
-                widthConstraint={"minimum": 90, "maximum": 160},
-            )
-
-        eid = f"{uid}__{twid}"
-        if eid not in seen_edges:
-            seen_edges.add(eid)
-            net.add_edge(uid, twid,
-                color={"color": "#00a8ff22", "highlight": "#00a8ff"},
-                width=1, title="AUTHORED", label="",
-                arrows={"to": {"enabled": True, "scaleFactor": 0.5}})
+        eid = f"{uid}>{twid}"
+        if eid not in seen_e:
+            seen_e.add(eid)
+            net.add_edge(uid, twid, title="AUTHORED",
+                color={"color": edge_col, "highlight": node_bd_u},
+                width=1, arrows={"to": {"enabled": True, "scaleFactor": 0.5}})
 
         if show_hashtags:
             for tag in tags:
                 hid = f"hash_{tag}"
-                if hid not in seen_nodes:
-                    seen_nodes.add(hid)
-                    net.add_node(
-                        hid,
+                if hid not in seen_n:
+                    seen_n.add(hid)
+                    net.add_node(hid,
                         label=f"#{tag}",
-                        title=f"<div style='font-family:monospace;font-size:11px;padding:6px'>"
-                              f"<b style='color:#00e676'>HASHTAG</b><br>#{tag}</div>",
-                        shape="diamond",
-                        size=12,
-                        color={"background": "#001a08", "border": "#00e676",
-                               "highlight": {"background": "#002a10", "border": "#60f0a0"},
-                               "hover":     {"background": "#002a10", "border": "#60f0a0"}},
-                        font={"color": "#00e676", "size": 9, "face": "IBM Plex Mono"},
-                        level=2,
-                    )
-                heid = f"{twid}__{hid}"
-                if heid not in seen_edges:
-                    seen_edges.add(heid)
-                    net.add_edge(twid, hid,
-                        color={"color": "#00e67618", "highlight": "#00e676"},
-                        width=1, title="HAS_TAG", label="",
-                        arrows={"to": {"enabled": True, "scaleFactor": 0.4}},
-                        dashes=True)
+                        title=f"<b style='color:{node_bd_h}'>TOPIC</b><br>#{tag}",
+                        shape="diamond", size=12, level=2,
+                        color={"background": node_bg_h, "border": node_bd_h,
+                               "highlight": {"background": node_bg_h, "border": node_bd_h},
+                               "hover":     {"background": node_bg_h, "border": node_bd_h}},
+                        font={"color": font_h, "size": 9, "face": "IBM Plex Mono, monospace"})
+                heid = f"{twid}>{hid}"
+                if heid not in seen_e:
+                    seen_e.add(heid)
+                    net.add_edge(twid, hid, title="HAS_TAG",
+                        color={"color": edge_col, "highlight": node_bd_h},
+                        width=1, dashes=True,
+                        arrows={"to": {"enabled": True, "scaleFactor": 0.4}})
 
-    return net, len(seen_nodes), len(seen_edges)
-
-
-def render_graph_html(net):
     with tempfile.NamedTemporaryFile(suffix=".html", delete=False, mode="w") as f:
         net.save_graph(f.name)
         path = f.name
-    with open(path, "r") as f:
-        html = f.read()
+    with open(path) as f:
+        raw = f.read()
     os.unlink(path)
 
-    # Inject dark background into the iframe HTML
-    html = html.replace(
-        "<body>",
-        "<body style='background:#070b10;margin:0;padding:0;overflow:hidden;'>"
-    ).replace(
-        "<html>",
-        "<html style='background:#070b10;'>"
+    # Patch background & remove vis toolbar scrollbar
+    raw = raw.replace("background-color: white;", f"background-color: {bg};")
+    raw = raw.replace("<body>", f"<body style='margin:0;padding:0;overflow:hidden;background:{bg}'>")
+    raw = raw.replace('<div id="mynetwork"',
+                      '<div id="mynetwork" style="position:absolute;top:0;left:0;right:0;bottom:0"')
+    return raw, len(seen_n), len(seen_e)
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# SESSION STATE
+# ════════════════════════════════════════════════════════════════════════════════
+defaults = {
+    "rows": [], "theme": "light", "layout": "force",
+    "show_tags": True, "filter_user": "", "limit": 300,
+    "ingest_records": None, "ingest_stats": None,
+    "view": "graph", "push_done": False, "push_err": None,
+    "neo4j_ok": False, "neo4j_err": None,
+}
+for k, v in defaults.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
+
+# Check connection once per session
+if not st.session_state.neo4j_ok:
+    ok, err = test_connection()
+    st.session_state.neo4j_ok  = ok
+    st.session_state.neo4j_err = err
+
+# Auto-load on startup
+if st.session_state.neo4j_ok and not st.session_state.rows:
+    try:
+        st.session_state.rows = fetch_graph(limit=st.session_state.limit)
+    except Exception:
+        pass
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# HANDLE FORM POSTS (Streamlit widget state → session_state → rerun)
+# ════════════════════════════════════════════════════════════════════════════════
+
+# File upload
+uploaded = st.file_uploader("ndjson", type=["ndjson","jsonl","json"],
+                             label_visibility="collapsed", key="uploader")
+if uploaded:
+    records = parse_ndjson(uploaded.read())
+    users   = {r["screen_name"] for r in records}
+    tids    = {r["tweet_id"]    for r in records}
+    tags    = {t for r in records for t in r["hashtags"]}
+    st.session_state.ingest_records = records
+    st.session_state.ingest_stats   = {
+        "parsed": len(records), "users": len(users),
+        "tweets": len(tids), "tags": len(tags)
+    }
+
+# Push button
+if st.button("PUSH", key="push_btn"):
+    recs = st.session_state.ingest_records
+    if recs and st.session_state.neo4j_ok:
+        try:
+            push_to_neo4j(recs)
+            fetch_graph.clear()
+            st.session_state.rows      = fetch_graph(limit=st.session_state.limit)
+            st.session_state.push_done = True
+            st.session_state.push_err  = None
+        except Exception as e:
+            st.session_state.push_err  = str(e)
+            st.session_state.push_done = False
+
+# Refresh button
+if st.button("REFRESH", key="refresh_btn"):
+    if st.session_state.neo4j_ok:
+        fetch_graph.clear()
+        try:
+            st.session_state.rows = fetch_graph(limit=st.session_state.limit)
+        except Exception:
+            pass
+
+# Sliders / inputs — read from query_params trick via hidden inputs below
+# (handled via JS postMessage → Streamlit doesn't need to know)
+
+# Hide the raw Streamlit widgets — they're only used as backend triggers
+st.markdown("""
+<style>
+  [data-testid="stFileUploader"],
+  [data-testid="stButton"] { position:fixed!important; top:-9999px!important; left:-9999px!important; }
+</style>
+""", unsafe_allow_html=True)
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# COMPUTE STATS
+# ════════════════════════════════════════════════════════════════════════════════
+rows   = st.session_state.rows
+theme  = st.session_state.theme
+
+n_users  = len({r["screen_name"] for r in rows})
+n_tweets = len({r["tweet_id"]    for r in rows})
+n_tags   = len({t for r in rows for t in (r["hashtags"] or [])})
+n_edges  = len(rows) + sum(len(r["hashtags"] or []) for r in rows)
+
+# Build graph HTML (only if we have data)
+graph_html_inner = ""
+n_nodes = n_edges_g = 0
+if rows:
+    graph_html_inner, n_nodes, n_edges_g = build_graph_html(
+        rows,
+        show_hashtags=st.session_state.show_tags,
+        filter_user=st.session_state.filter_user,
+        layout=st.session_state.layout,
+        theme=theme,
     )
-    # Remove the vis.js toolbar
-    html = html.replace(
-        'style="width:100%;height:100%;"',
-        'style="width:100%;height:100%;background:#070b10;"'
-    )
-    return html
+    # Extract just the body content from pyvis HTML
+    import re
+    body_match = re.search(r'<body[^>]*>(.*)</body>', graph_html_inner, re.DOTALL)
+    head_match = re.search(r'<head[^>]*>(.*)</head>', graph_html_inner, re.DOTALL)
+    graph_body  = body_match.group(1)  if body_match  else ""
+    graph_head  = head_match.group(1)  if head_match  else graph_html_inner
 
 
-# ── Session state ─────────────────────────────────────────────────────────────────
-if "selected_node" not in st.session_state:
-    st.session_state.selected_node = None
-if "graph_rows" not in st.session_state:
-    st.session_state.graph_rows = []
-if "ingest_stats" not in st.session_state:
-    st.session_state.ingest_stats = None
-if "active_view" not in st.session_state:
-    st.session_state.active_view = "graph"  # graph | ingest | raw
-if "layout_mode" not in st.session_state:
-    st.session_state.layout_mode = "force"
+# ════════════════════════════════════════════════════════════════════════════════
+# THEME TOKENS
+# ════════════════════════════════════════════════════════════════════════════════
+if theme == "dark":
+    T = {
+        "bg":          "#070b10",
+        "bg2":         "#0c1420",
+        "bg3":         "#0f1e30",
+        "border":      "#1a3a50",
+        "border2":     "#0d2035",
+        "text":        "#8fa8c0",
+        "text2":       "#4a7090",
+        "text3":       "#1e4060",
+        "accent":      "#2196f3",
+        "accent2":     "#1565c0",
+        "amber":       "#ff9500",
+        "green":       "#00e676",
+        "red":         "#f44336",
+        "topbar":      "#080d14",
+        "panel":       "#080d14",
+        "card":        "#0c1828",
+        "card_border": "#1a3a50",
+        "tag_user":    "#0d2235",
+        "tag_tweet":   "#150e00",
+        "tag_hash":    "#001a08",
+        "scrollbar":   "#1e3448",
+        "input_bg":    "#0a1420",
+        "btn_bg":      "#0d2235",
+        "btn_hover":   "#1a3a54",
+        "metric_val":  "#2196f3",
+        "logo":        "#e0f0ff",
+        "graph_bg":    "#070b10",
+        "conn_ok":     "#00e676",
+        "conn_err":    "#f44336",
+        "grid":        "rgba(33,150,243,0.04)",
+        "scanline":    "transparent",
+    }
+else:
+    T = {
+        "bg":          "#f0f2f5",
+        "bg2":         "#ffffff",
+        "bg3":         "#e8edf2",
+        "border":      "#d0dae6",
+        "border2":     "#c8d4e0",
+        "text":        "#1e3a52",
+        "text2":       "#4a6a88",
+        "text3":       "#8aa4bc",
+        "accent":      "#1d6fa4",
+        "accent2":     "#1558a0",
+        "amber":       "#b45309",
+        "green":       "#166534",
+        "red":         "#b91c1c",
+        "topbar":      "#ffffff",
+        "panel":       "#ffffff",
+        "card":        "#f8fafc",
+        "card_border": "#dde5ee",
+        "tag_user":    "#dbeafe",
+        "tag_tweet":   "#fff7e6",
+        "tag_hash":    "#dcfce7",
+        "scrollbar":   "#c8d4e0",
+        "input_bg":    "#f8fafc",
+        "btn_bg":      "#eef3f8",
+        "btn_hover":   "#dde8f2",
+        "metric_val":  "#1d6fa4",
+        "logo":        "#0f2a40",
+        "graph_bg":    "#f0f2f5",
+        "conn_ok":     "#166534",
+        "conn_err":    "#b91c1c",
+        "grid":        "rgba(29,111,164,0.05)",
+        "scanline":    "transparent",
+    }
+
+# Ingest stats JSON for JS
+ist = st.session_state.ingest_stats or {}
+ist_json = json.dumps(ist)
+push_done = st.session_state.push_done
+push_err  = st.session_state.push_err or ""
+
+conn_ok  = st.session_state.neo4j_ok
+conn_err = st.session_state.neo4j_err or ""
+
+# Table rows for raw view
+import html as html_lib
+table_rows_html = ""
+for r in rows[:500]:
+    tags_str = ", ".join(f"#{t}" for t in (r["hashtags"] or []))
+    snippet  = html_lib.escape(r["snippet"] or "")
+    sn       = html_lib.escape(r["screen_name"])
+    tid      = html_lib.escape(r["tweet_id"])
+    table_rows_html += f"""
+    <tr>
+      <td><span class="tag-user">@{sn}</span></td>
+      <td class="mono" style="font-size:10px;color:var(--text3)">{tid}</td>
+      <td style="max-width:300px;font-size:11px">{snippet}</td>
+      <td style="font-size:10px;color:var(--green)">{tags_str}</td>
+    </tr>"""
 
 
-# ── Connection test ───────────────────────────────────────────────────────────────
-neo4j_ok, neo4j_err = test_connection()
+# ════════════════════════════════════════════════════════════════════════════════
+# THE FULL HTML SHELL
+# ════════════════════════════════════════════════════════════════════════════════
+HTML = f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Barlow+Condensed:wght@300;400;500;600;700&family=Barlow:wght@300;400;500&display=swap" rel="stylesheet">
+{"" if not rows else (head_match.group(1) if head_match else "")}
 
+<style>
+/* ── CSS custom properties ── */
+:root {{
+  --bg:          {T["bg"]};
+  --bg2:         {T["bg2"]};
+  --bg3:         {T["bg3"]};
+  --border:      {T["border"]};
+  --border2:     {T["border2"]};
+  --text:        {T["text"]};
+  --text2:       {T["text2"]};
+  --text3:       {T["text3"]};
+  --accent:      {T["accent"]};
+  --accent2:     {T["accent2"]};
+  --amber:       {T["amber"]};
+  --green:       {T["green"]};
+  --red:         {T["red"]};
+  --topbar:      {T["topbar"]};
+  --panel:       {T["panel"]};
+  --card:        {T["card"]};
+  --card-border: {T["card_border"]};
+  --metric-val:  {T["metric_val"]};
+  --logo:        {T["logo"]};
+  --input-bg:    {T["input_bg"]};
+  --btn-bg:      {T["btn_bg"]};
+  --btn-hover:   {T["btn_hover"]};
+  --scrollbar:   {T["scrollbar"]};
+  --green-bg:    {T["tag_hash"]};
+  --amber-bg:    {T["tag_tweet"]};
+  --blue-bg:     {T["tag_user"]};
+}}
 
-# ── Compute stats from fetched rows ───────────────────────────────────────────────
-def compute_stats(rows):
-    users  = {r["screen_name"] for r in rows}
-    tweets = {r["tweet_id"]    for r in rows}
-    tags   = {t for r in rows for t in (r["hashtags"] or [])}
-    edges  = len(rows) + sum(len(r["hashtags"] or []) for r in rows)
-    return len(users), len(tweets), len(tags), edges
+/* ── Reset ── */
+*,*::before,*::after{{box-sizing:border-box;margin:0;padding:0}}
+html,body{{
+  width:100%;height:100%;
+  background:var(--bg);
+  color:var(--text);
+  font-family:'Barlow',sans-serif;
+  overflow:hidden;
+  font-size:13px;
+}}
+::-webkit-scrollbar{{width:4px;height:4px}}
+::-webkit-scrollbar-track{{background:var(--bg)}}
+::-webkit-scrollbar-thumb{{background:var(--scrollbar);border-radius:2px}}
 
+/* ── Shell ── */
+.shell{{
+  display:grid;
+  grid-template-rows:48px 1fr;
+  grid-template-columns:268px 1fr 288px;
+  width:100vw;height:100vh;
+  background:
+    linear-gradient({T["grid"]} 1px, transparent 1px),
+    linear-gradient(90deg, {T["grid"]} 1px, transparent 1px);
+  background-size:40px 40px;
+  background-color:var(--bg);
+}}
 
-# ═══════════════════════════════════════════════════════════════════════════════════
-# LAYOUT — 3-column HUD
-# ═══════════════════════════════════════════════════════════════════════════════════
-left_col, center_col, right_col = st.columns([280, 1, 300], gap="small")
+/* ── Top bar ── */
+.topbar{{
+  grid-column:1/-1;
+  display:flex;align-items:center;gap:0;
+  background:var(--topbar);
+  border-bottom:1px solid var(--border);
+  padding:0 16px;
+  position:relative;z-index:200;
+  box-shadow:0 1px 8px rgba(0,0,0,{"0.3" if theme=="dark" else "0.06"});
+}}
+.topbar-accent{{
+  position:absolute;bottom:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,transparent,var(--accent)60%,var(--accent),var(--accent)60%,transparent);
+  opacity:0.5;
+}}
+.logo-block{{
+  display:flex;align-items:center;gap:10px;
+  padding-right:20px;
+  border-right:1px solid var(--border);
+  margin-right:20px;
+  cursor:default;
+}}
+.logo-hex{{
+  width:28px;height:28px;
+  background:var(--accent);
+  clip-path:polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%);
+  display:flex;align-items:center;justify-content:center;
+  color:#fff;font-size:13px;flex-shrink:0;
+}}
+.logo-text{{
+  font-family:'Barlow Condensed',sans-serif;
+  font-size:17px;font-weight:700;letter-spacing:4px;
+  color:var(--logo);text-transform:uppercase;line-height:1;
+}}
+.logo-sub{{
+  font-family:'IBM Plex Mono',monospace;
+  font-size:8px;color:var(--accent);letter-spacing:2px;
+  opacity:0.6;margin-top:2px;
+}}
+.tb-stat{{
+  display:flex;flex-direction:column;
+  padding:0 16px;border-right:1px solid var(--border2);
+}}
+.tb-val{{
+  font-family:'IBM Plex Mono',monospace;
+  font-size:15px;font-weight:600;color:var(--accent);line-height:1;
+}}
+.tb-lbl{{
+  font-size:8px;color:var(--text3);letter-spacing:2px;
+  text-transform:uppercase;margin-top:2px;
+}}
+.tb-right{{
+  margin-left:auto;display:flex;align-items:center;gap:12px;
+}}
+.conn-badge{{
+  display:flex;align-items:center;gap:6px;
+  font-family:'IBM Plex Mono',monospace;font-size:9px;
+  letter-spacing:1px;
+}}
+.dot{{width:7px;height:7px;border-radius:50%;flex-shrink:0;}}
+.dot-ok {{background:var(--green);box-shadow:0 0 6px var(--green);animation:pulse 2s infinite;}}
+.dot-err{{background:var(--red);}}
+@keyframes pulse{{0%,100%{{opacity:1}}50%{{opacity:.4}}}}
+.classif{{
+  font-family:'IBM Plex Mono',monospace;font-size:8px;
+  letter-spacing:2px;color:var(--amber);
+  border:1px solid color-mix(in srgb, var(--amber) 30%, transparent);
+  padding:3px 8px;border-radius:2px;
+  background:color-mix(in srgb, var(--amber) 8%, transparent);
+}}
+.theme-toggle{{
+  cursor:pointer;padding:4px 10px;
+  background:var(--btn-bg);border:1px solid var(--border);
+  border-radius:3px;font-family:'IBM Plex Mono',monospace;
+  font-size:9px;color:var(--text2);letter-spacing:1px;
+  user-select:none;transition:.15s;
+}}
+.theme-toggle:hover{{background:var(--btn-hover);color:var(--accent);}}
 
-# Quick stats for top bar — fetch only if connected
-tb_users = tb_tweets = tb_tags = 0
-if neo4j_ok and st.session_state.graph_rows:
-    tb_users, tb_tweets, tb_tags, _ = compute_stats(st.session_state.graph_rows)
+/* ── Panels ── */
+.left-panel,.right-panel{{
+  background:var(--panel);
+  border-color:var(--border);
+  overflow-y:auto;
+  display:flex;flex-direction:column;
+}}
+.left-panel{{
+  grid-row:2;
+  border-right:1px solid var(--border);
+}}
+.right-panel{{
+  grid-row:2;
+  border-left:1px solid var(--border);
+}}
 
+.psec{{border-bottom:1px solid var(--border2);padding:12px 14px;}}
+.ptitle{{
+  font-family:'IBM Plex Mono',monospace;
+  font-size:8px;letter-spacing:3px;color:var(--accent);
+  text-transform:uppercase;margin-bottom:10px;opacity:0.7;
+  display:flex;align-items:center;gap:8px;
+}}
+.ptitle::before{{content:'';width:10px;height:1px;background:var(--accent);opacity:0.4;}}
 
-# ── TOP BAR ───────────────────────────────────────────────────────────────────────
-conn_dot  = '<span class="dot-live"></span> AURADB ONLINE' if neo4j_ok else '<span class="dot-err"></span> DB OFFLINE'
-st.markdown(f"""
-<div class="top-bar">
+/* ── View tabs ── */
+.vtabs{{display:flex;gap:0;}}
+.vtab{{
+  flex:1;padding:7px 0;text-align:center;
+  font-family:'IBM Plex Mono',monospace;font-size:8px;
+  letter-spacing:2px;text-transform:uppercase;
+  cursor:pointer;border-bottom:2px solid transparent;
+  color:var(--text3);transition:.15s;
+  border-right:1px solid var(--border2);
+}}
+.vtab:last-child{{border-right:none;}}
+.vtab:hover{{color:var(--accent);background:color-mix(in srgb,var(--accent) 5%,transparent);}}
+.vtab.active{{color:var(--accent);border-bottom-color:var(--accent);background:color-mix(in srgb,var(--accent) 6%,transparent);}}
+
+/* ── Controls ── */
+.ctrl-label{{
+  font-family:'IBM Plex Mono',monospace;font-size:8px;
+  color:var(--text3);letter-spacing:2px;text-transform:uppercase;
+  margin-bottom:4px;display:flex;justify-content:space-between;
+}}
+.ctrl-label span{{color:var(--accent);}}
+.ctrl-row{{margin-bottom:10px;}}
+input[type=range]{{
+  width:100%;height:3px;-webkit-appearance:none;appearance:none;
+  background:var(--border);border-radius:2px;outline:none;cursor:pointer;
+}}
+input[type=range]::-webkit-slider-thumb{{
+  -webkit-appearance:none;width:12px;height:12px;
+  background:var(--accent);border-radius:50%;cursor:pointer;
+}}
+input[type=text]{{
+  width:100%;padding:6px 10px;
+  background:var(--input-bg);border:1px solid var(--border);
+  border-radius:3px;color:var(--text);
+  font-family:'IBM Plex Mono',monospace;font-size:10px;outline:none;
+  transition:.15s;
+}}
+input[type=text]:focus{{border-color:var(--accent);}}
+select{{
+  width:100%;padding:6px 10px;
+  background:var(--input-bg);border:1px solid var(--border);
+  border-radius:3px;color:var(--text);
+  font-family:'IBM Plex Mono',monospace;font-size:10px;outline:none;cursor:pointer;
+}}
+.chk-row{{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;}}
+.chk-row input{{accent-color:var(--accent);width:13px;height:13px;cursor:pointer;}}
+.chk-row label{{font-size:11px;color:var(--text2);cursor:pointer;}}
+
+/* ── Buttons ── */
+.btn{{
+  display:flex;align-items:center;justify-content:center;gap:6px;
+  padding:7px 12px;background:var(--btn-bg);
+  border:1px solid var(--border);border-radius:3px;
+  color:var(--accent);font-family:'IBM Plex Mono',monospace;
+  font-size:9px;letter-spacing:1px;text-transform:uppercase;
+  cursor:pointer;transition:.15s;width:100%;margin-bottom:5px;
+}}
+.btn:hover{{background:var(--btn-hover);border-color:var(--accent);}}
+.btn.primary{{background:var(--accent);color:#fff;border-color:var(--accent2);}}
+.btn.primary:hover{{background:var(--accent2);}}
+.btn.danger{{color:var(--red);border-color:color-mix(in srgb,var(--red) 30%,transparent);}}
+
+/* ── Legend ── */
+.legend-item{{
+  display:flex;align-items:center;gap:10px;
+  padding:7px 0;border-bottom:1px solid var(--border2);
+  font-size:11px;color:var(--text2);
+}}
+.legend-item:last-child{{border-bottom:none;}}
+.l-dot{{width:16px;height:16px;border-radius:50%;border:2px solid var(--accent);background:var(--blue-bg);flex-shrink:0;}}
+.l-box{{width:22px;height:13px;border:2px solid var(--amber);background:var(--amber-bg);border-radius:2px;flex-shrink:0;}}
+.l-dia{{
+  width:14px;height:14px;flex-shrink:0;
+  border:2px solid var(--green);background:var(--green-bg);
+  transform:rotate(45deg);
+}}
+.legend-ct{{margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text3);}}
+
+/* ── Metric grid ── */
+.mgrid{{display:grid;grid-template-columns:1fr 1fr;gap:6px;}}
+.mcard{{
+  background:var(--card);border:1px solid var(--card-border);
+  border-radius:3px;padding:9px 11px;position:relative;overflow:hidden;
+}}
+.mcard::before{{
+  content:'';position:absolute;top:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,var(--accent),transparent);opacity:.3;
+}}
+.mval{{font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:600;color:var(--metric-val);line-height:1;}}
+.mlbl{{font-size:8px;color:var(--text3);letter-spacing:2px;text-transform:uppercase;margin-top:3px;}}
+
+/* ── Upload zone ── */
+.upload-zone{{
+  border:1px dashed var(--border);background:var(--input-bg);
+  border-radius:4px;padding:14px;text-align:center;
+  font-family:'IBM Plex Mono',monospace;font-size:9px;
+  color:var(--text3);letter-spacing:1px;cursor:pointer;
+  transition:.15s;
+}}
+.upload-zone:hover{{border-color:var(--accent);color:var(--accent);}}
+.file-chosen{{
+  background:color-mix(in srgb,var(--accent) 8%,transparent);
+  border-color:var(--accent);color:var(--accent);
+}}
+
+/* ── Alert ── */
+.alert{{
+  padding:8px 10px;border-radius:3px;
+  font-family:'IBM Plex Mono',monospace;font-size:9px;
+  letter-spacing:.5px;margin-top:8px;line-height:1.5;
+}}
+.alert-ok {{background:color-mix(in srgb,var(--green) 10%,transparent);border:1px solid color-mix(in srgb,var(--green) 30%,transparent);color:var(--green);}}
+.alert-err{{background:color-mix(in srgb,var(--red)   10%,transparent);border:1px solid color-mix(in srgb,var(--red)   30%,transparent);color:var(--red);}}
+
+/* ── Center graph ── */
+.graph-center{{
+  grid-row:2;
+  position:relative;
+  overflow:hidden;
+  background:var(--bg);
+}}
+.graph-topbar{{
+  position:absolute;top:0;left:0;right:0;
+  height:30px;
+  background:var(--bg2);
+  border-bottom:1px solid var(--border2);
+  display:flex;align-items:center;
+  padding:0 12px;gap:16px;
+  z-index:50;
+  font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text3);
+  letter-spacing:1px;
+}}
+.stat-pill{{display:flex;align-items:center;gap:5px;}}
+.stat-pill .v{{color:var(--accent);font-weight:600;}}
+.graph-frame{{
+  position:absolute;top:30px;left:0;right:0;bottom:0;
+  overflow:hidden;
+}}
+.graph-frame iframe{{width:100%;height:100%;border:none;}}
+/* Corner brackets */
+.corner{{position:absolute;width:16px;height:16px;z-index:60;pointer-events:none;}}
+.corner.tl{{top:34px;left:4px;border-top:1px solid var(--accent);border-left:1px solid var(--accent);opacity:.4;}}
+.corner.br{{bottom:4px;right:4px;border-bottom:1px solid var(--accent);border-right:1px solid var(--accent);opacity:.4;}}
+/* Empty state */
+.empty{{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  height:100%;gap:8px;
+  font-family:'IBM Plex Mono',monospace;font-size:10px;
+  color:var(--text3);letter-spacing:2px;text-align:center;
+}}
+.empty-ico{{font-size:32px;opacity:.2;margin-bottom:6px;}}
+
+/* ── Right panel ── */
+.entity-card{{
+  background:var(--card);border:1px solid var(--card-border);
+  border-radius:4px;margin:10px;overflow:hidden;
+}}
+.ent-header{{
+  background:var(--bg3);padding:9px 13px;
+  border-bottom:1px solid var(--border2);
+  display:flex;align-items:center;gap:8px;
+}}
+.ent-badge{{
+  font-family:'IBM Plex Mono',monospace;font-size:7px;
+  letter-spacing:2px;text-transform:uppercase;
+  padding:2px 7px;border-radius:2px;
+}}
+.badge-user   {{background:var(--blue-bg);border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);color:var(--accent);}}
+.badge-tweet  {{background:var(--amber-bg);border:1px solid color-mix(in srgb,var(--amber) 40%,transparent);color:var(--amber);}}
+.badge-hashtag{{background:var(--green-bg);border:1px solid color-mix(in srgb,var(--green) 40%,transparent);color:var(--green);}}
+.ent-name{{
+  font-family:'Barlow Condensed',sans-serif;font-size:13px;
+  font-weight:600;color:var(--text);
+}}
+.ent-body{{padding:12px 13px;}}
+.ent-field{{margin-bottom:11px;}}
+.ent-key{{
+  font-family:'IBM Plex Mono',monospace;font-size:7px;
+  color:var(--text3);letter-spacing:2px;text-transform:uppercase;margin-bottom:3px;
+}}
+.ent-val{{font-size:11px;color:var(--text2);line-height:1.5;word-break:break-word;}}
+.mono{{font-family:'IBM Plex Mono',monospace!important;}}
+
+/* ── Tags ── */
+.tag-user   {{display:inline-block;padding:1px 6px;border-radius:2px;background:var(--blue-bg);color:var(--accent);font-family:'IBM Plex Mono',monospace;font-size:10px;margin:1px;}}
+.tag-tweet  {{display:inline-block;padding:1px 6px;border-radius:2px;background:var(--amber-bg);color:var(--amber);font-family:'IBM Plex Mono',monospace;font-size:10px;margin:1px;}}
+.tag-hash   {{display:inline-block;padding:1px 6px;border-radius:2px;background:var(--green-bg);color:var(--green);font-family:'IBM Plex Mono',monospace;font-size:10px;margin:1px;}}
+
+/* ── Table ── */
+.tbl-wrap{{overflow:auto;max-height:calc(100vh - 100px);padding:10px;}}
+table{{width:100%;border-collapse:collapse;font-size:11px;}}
+th{{
+  font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:2px;
+  text-transform:uppercase;color:var(--text3);
+  padding:8px 10px;border-bottom:1px solid var(--border);
+  text-align:left;background:var(--bg2);position:sticky;top:0;z-index:10;
+}}
+td{{
+  padding:7px 10px;border-bottom:1px solid var(--border2);
+  color:var(--text2);vertical-align:top;
+}}
+tr:hover td{{background:color-mix(in srgb,var(--accent) 4%,transparent);}}
+
+/* ── Density ── */
+.density-row{{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:8px 0 0;
+  font-family:'IBM Plex Mono',monospace;font-size:8px;color:var(--text3);letter-spacing:1px;
+}}
+</style>
+</head>
+<body>
+<div class="shell">
+
+<!-- ═══ TOP BAR ═══ -->
+<div class="topbar">
   <div class="logo-block">
-    <div class="logo-icon">🦅</div>
+    <div class="logo-hex">🦅</div>
     <div>
       <div class="logo-text">FalconX</div>
       <div class="logo-sub">OSINT // LINK ANALYSIS</div>
     </div>
   </div>
-  <div class="top-stat"><div class="top-stat-val">{tb_users}</div><div class="top-stat-lbl">Actors</div></div>
-  <div class="top-stat"><div class="top-stat-val">{tb_tweets}</div><div class="top-stat-lbl">Artifacts</div></div>
-  <div class="top-stat"><div class="top-stat-val">{tb_tags}</div><div class="top-stat-lbl">Tags</div></div>
-  <div class="top-status">{conn_dot}</div>
-  <div class="classification">UNCLASSIFIED // OSINT</div>
+  <div class="tb-stat"><div class="tb-val">{n_users}</div><div class="tb-lbl">Actors</div></div>
+  <div class="tb-stat"><div class="tb-val">{n_tweets}</div><div class="tb-lbl">Artifacts</div></div>
+  <div class="tb-stat"><div class="tb-val">{n_tags}</div><div class="tb-lbl">Topics</div></div>
+  <div class="tb-stat" style="border-right:none"><div class="tb-val">{n_edges_g}</div><div class="tb-lbl">Relations</div></div>
+  <div class="tb-right">
+    <div class="conn-badge">
+      <div class="dot {"dot-ok" if conn_ok else "dot-err"}"></div>
+      <span style="color:{"var(--green)" if conn_ok else "var(--red)"}">
+        {"AURADB ONLINE" if conn_ok else "DB OFFLINE"}
+      </span>
+    </div>
+    <div class="classif">UNCLASSIFIED // OSINT</div>
+    <div class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
+      {"☀ LIGHT" if theme=="dark" else "◑ DARK"}
+    </div>
+  </div>
+  <div class="topbar-accent"></div>
 </div>
-""", unsafe_allow_html=True)
 
+<!-- ═══ LEFT PANEL ═══ -->
+<div class="left-panel">
 
-# ── LEFT PANEL ────────────────────────────────────────────────────────────────────
-with left_col:
-    # ── View selector
-    st.markdown('<div class="panel-section"><div class="panel-title">View</div>', unsafe_allow_html=True)
-    col_v1, col_v2, col_v3 = st.columns(3)
-    with col_v1:
-        if st.button("GRAPH", key="v_graph"):
-            st.session_state.active_view = "graph"
-            st.rerun()
-    with col_v2:
-        if st.button("INGEST", key="v_ingest"):
-            st.session_state.active_view = "ingest"
-            st.rerun()
-    with col_v3:
-        if st.button("TABLE", key="v_raw"):
-            st.session_state.active_view = "raw"
-            st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
+  <!-- View tabs -->
+  <div class="psec" style="padding:0">
+    <div class="vtabs">
+      <div class="vtab {"active" if st.session_state.view=="graph" else ""}" onclick="setView('graph')">Graph</div>
+      <div class="vtab {"active" if st.session_state.view=="ingest" else ""}" onclick="setView('ingest')">Ingest</div>
+      <div class="vtab {"active" if st.session_state.view=="raw" else ""}" onclick="setView('raw')">Table</div>
+    </div>
+  </div>
 
-    # ── Graph controls
-    st.markdown('<div class="panel-section"><div class="panel-title">Graph Controls</div>', unsafe_allow_html=True)
+  <!-- Graph controls -->
+  <div class="psec">
+    <div class="ptitle">Graph Controls</div>
 
-    node_limit = st.slider("Node limit", 50, 1000, 300, 50, label_visibility="collapsed")
-    st.markdown(f'<div class="filter-label">NODE LIMIT — {node_limit}</div>', unsafe_allow_html=True)
+    <div class="ctrl-row">
+      <div class="ctrl-label">Node Limit <span id="limitVal">{st.session_state.limit}</span></div>
+      <input type="range" min="50" max="1000" step="50" value="{st.session_state.limit}"
+             oninput="document.getElementById('limitVal').textContent=this.value"
+             onchange="sendCtrl('limit', this.value)">
+    </div>
 
-    filter_user = st.text_input("Filter actor", placeholder="@username...", label_visibility="collapsed")
-    st.markdown('<div class="filter-label">FILTER BY ACTOR</div>', unsafe_allow_html=True)
+    <div class="ctrl-row">
+      <div class="ctrl-label">Filter Actor</div>
+      <input type="text" placeholder="@username…" value="{st.session_state.filter_user}"
+             onchange="sendCtrl('filter', this.value)">
+    </div>
 
-    show_hashtags = st.checkbox("Show hashtag nodes", value=True)
+    <div class="ctrl-row">
+      <div class="ctrl-label">Layout Engine</div>
+      <select onchange="sendCtrl('layout', this.value)">
+        <option value="force" {"selected" if st.session_state.layout=="force" else ""}>Force-directed</option>
+        <option value="hierarchical" {"selected" if st.session_state.layout=="hierarchical" else ""}>Hierarchical (U→D)</option>
+      </select>
+    </div>
 
-    layout_opts = {"Force-directed": "force", "Hierarchical (U→D)": "hierarchical"}
-    layout_label = st.selectbox("Layout", list(layout_opts.keys()), label_visibility="collapsed")
-    st.markdown('<div class="filter-label">LAYOUT ENGINE</div>', unsafe_allow_html=True)
-    st.session_state.layout_mode = layout_opts[layout_label]
-
-    if st.button("⟳  REFRESH GRAPH"):
-        fetch_graph.clear()
-        if neo4j_ok:
-            st.session_state.graph_rows = fetch_graph(limit=node_limit)
-        st.rerun()
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # ── Legend
-    n_users = n_tweets = n_tags = 0
-    if st.session_state.graph_rows:
-        n_users, n_tweets, n_tags, _ = compute_stats(st.session_state.graph_rows)
-
-    st.markdown(f"""
-    <div class="panel-section">
-      <div class="panel-title">Entity Legend</div>
-      <div class="legend-item">
-        <div class="l-icon"><div class="l-circle"></div></div>
-        <span>Actor / User</span>
-        <span class="legend-count">{n_users}</span>
-      </div>
-      <div class="legend-item">
-        <div class="l-icon"><div class="l-rect"></div></div>
-        <span>Artifact / Tweet</span>
-        <span class="legend-count">{n_tweets}</span>
-      </div>
-      <div class="legend-item">
-        <div class="l-icon"><div class="l-diamond"></div></div>
-        <span>Tag / Topic</span>
-        <span class="legend-count">{n_tags}</span>
+    <div class="ctrl-row">
+      <div class="chk-row">
+        <input type="checkbox" id="showTags" {"checked" if st.session_state.show_tags else ""}
+               onchange="sendCtrl('show_tags', this.checked)">
+        <label for="showTags">Show hashtag nodes</label>
       </div>
     </div>
-    """, unsafe_allow_html=True)
 
-    # ── Ingest action (always visible shortcut)
-    st.markdown('<div class="panel-section"><div class="panel-title">Data Ingest</div>', unsafe_allow_html=True)
-    uploaded = st.file_uploader("Drop .ndjson", type=["ndjson", "jsonl", "json"], label_visibility="collapsed")
-    if uploaded:
-        records = parse_ndjson(uploaded.read())
-        u = {r["screen_name"] for r in records}
-        t_set = {r["tweet_id"] for r in records}
-        tg = {tag for r in records for tag in r["hashtags"]}
-        st.session_state.ingest_stats = {"records": records, "users": len(u), "tweets": len(t_set), "tags": len(tg)}
-        st.markdown(f"""
-        <div class="metric-grid">
-          <div class="metric-card"><div class="metric-val">{len(records)}</div><div class="metric-lbl">Parsed</div></div>
-          <div class="metric-card"><div class="metric-val">{len(u)}</div><div class="metric-lbl">Actors</div></div>
-          <div class="metric-card"><div class="metric-val">{len(t_set)}</div><div class="metric-lbl">Artifacts</div></div>
-          <div class="metric-card"><div class="metric-val">{len(tg)}</div><div class="metric-lbl">Tags</div></div>
-        </div>
-        """, unsafe_allow_html=True)
+    <button class="btn" onclick="sendCtrl('refresh', '1')">⟳ Refresh Graph</button>
+  </div>
 
-        if neo4j_ok and records:
-            if st.button("⬆  PUSH TO NEO4J"):
-                with st.spinner("Writing graph…"):
-                    try:
-                        push_to_neo4j(records)
-                        fetch_graph.clear()
-                        st.session_state.graph_rows = fetch_graph(limit=node_limit)
-                        st.success(f"✓ {len(records)} artifacts ingested")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(str(e))
-    st.markdown('</div>', unsafe_allow_html=True)
+  <!-- Legend -->
+  <div class="psec">
+    <div class="ptitle">Entity Legend</div>
+    <div class="legend-item"><div class="l-dot"></div><span>Actor / User</span><span class="legend-ct">{n_users}</span></div>
+    <div class="legend-item"><div class="l-box"></div><span>Artifact / Tweet</span><span class="legend-ct">{n_tweets}</span></div>
+    <div class="legend-item"><div class="l-dia"></div><span>Topic / Hashtag</span><span class="legend-ct">{n_tags}</span></div>
+  </div>
+
+  <!-- Ingest section -->
+  <div class="psec" id="ingestPanel">
+    <div class="ptitle">Data Ingest</div>
+    <div class="upload-zone" id="dropZone" onclick="triggerUpload()">
+      {"📁 " + (st.session_state.ingest_stats and str(ist.get("parsed","0")) + " records loaded" or "Drop .ndjson or click to upload")}
+    </div>
+
+    {'<div class="mgrid" style="margin-top:8px">'
+      + f'<div class="mcard"><div class="mval">{ist.get("parsed",0)}</div><div class="mlbl">Parsed</div></div>'
+      + f'<div class="mcard"><div class="mval">{ist.get("users",0)}</div><div class="mlbl">Actors</div></div>'
+      + f'<div class="mcard"><div class="mval">{ist.get("tweets",0)}</div><div class="mlbl">Artifacts</div></div>'
+      + f'<div class="mcard"><div class="mval">{ist.get("tags",0)}</div><div class="mlbl">Topics</div></div>'
+      + '</div>'
+      if ist else ""}
+
+    {'<div class="alert alert-ok">✓ ' + str(ist.get("parsed",0)) + ' artifacts pushed to Neo4j</div>' if push_done else ""}
+    {'<div class="alert alert-err">✗ ' + push_err + '</div>' if push_err else ""}
+
+    {"" if not ist else '<button class="btn primary" style="margin-top:8px" onclick="triggerPush()">⬆ Push to Neo4j</button>'}
+  </div>
+
+</div><!-- /left-panel -->
 
 
-# ── CENTER — GRAPH ────────────────────────────────────────────────────────────────
-with center_col:
-    view = st.session_state.active_view
+<!-- ═══ CENTER GRAPH ═══ -->
+<div class="graph-center" id="mainView">
 
-    # Auto-load on first run
-    if neo4j_ok and not st.session_state.graph_rows:
-        st.session_state.graph_rows = fetch_graph(limit=node_limit)
+  <!-- Graph view -->
+  <div id="view-graph" style="position:absolute;inset:0;display:{"block" if st.session_state.view=="graph" else "none"}">
+    <div class="graph-topbar">
+      <div class="stat-pill">NODES <span class="v">{n_nodes}</span></div>
+      <div class="stat-pill">EDGES <span class="v">{n_edges_g}</span></div>
+      <div class="stat-pill">ACTORS <span class="v">{n_users}</span></div>
+      <span style="margin-left:auto;text-transform:uppercase">{st.session_state.layout}</span>
+    </div>
+    <div class="graph-frame">
+      {"<iframe srcdoc='" + graph_body.replace("'", "&#39;") + "'></iframe>"
+       if rows and graph_body else
+       '<div class="empty"><div class="empty-ico">◈</div><div>NO GRAPH DATA</div><div style="margin-top:4px;font-size:9px">Ingest a .ndjson file to begin</div></div>'}
+    </div>
+    <div class="corner tl"></div>
+    <div class="corner br"></div>
+  </div>
 
-    rows = st.session_state.graph_rows
+  <!-- Ingest guide view -->
+  <div id="view-ingest" style="position:absolute;inset:0;display:{"block" if st.session_state.view=="ingest" else "none"};padding:32px;overflow-y:auto">
+    <div style="max-width:560px">
+      <div style="font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:700;color:var(--text);letter-spacing:2px;margin-bottom:6px">DATA INGEST</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:8px;color:var(--accent);letter-spacing:3px;margin-bottom:24px">ZEESCHUIMER NDJSON PIPELINE</div>
+      <div style="color:var(--text2);line-height:1.8;font-size:12px">
+        <p style="margin-bottom:16px">Use the file uploader in the left panel to load a Zeeschuimer <span class="tag-user">.ndjson</span> export from Twitter/X.</p>
+        <p style="margin-bottom:16px">Once parsed, click <span class="tag-user">PUSH TO NEO4J</span> to write all entities and relationships to AuraDB.</p>
+        <p>Then switch to <span class="tag-user">Graph</span> view and click <span class="tag-user">REFRESH GRAPH</span>.</p>
+      </div>
+    </div>
+  </div>
 
-    if view == "graph":
-        if not rows:
-            st.markdown("""
-            <div class="empty-state">
-              <div class="empty-icon">◈</div>
-              <div>NO GRAPH DATA</div>
-              <div style="color:#0d2035;margin-top:4px">Ingest a .ndjson file to begin</div>
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            net, nc, ec = build_pyvis(
-                rows,
-                show_hashtags=show_hashtags,
-                filter_user=filter_user,
-                layout_mode=st.session_state.layout_mode
-            )
-            html = render_graph_html(net)
-            # Inject click-to-select JS bridge
-            click_js = """
+  <!-- Raw table view -->
+  <div id="view-raw" style="position:absolute;inset:0;display:{"block" if st.session_state.view=="raw" else "none"}">
+    {"" if not rows else f'''
+    <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>Actor</th><th>Tweet ID</th><th>Snippet</th><th>Tags</th>
+      </tr></thead>
+      <tbody>{table_rows_html}</tbody>
+    </table>
+    </div>''' if rows else '<div class="empty"><div class="empty-ico">◫</div><div>NO DATA</div></div>'}
+  </div>
+
+</div><!-- /graph-center -->
+
+
+<!-- ═══ RIGHT PANEL — Entity Inspector ═══ -->
+<div class="right-panel">
+  <div class="psec">
+    <div class="ptitle">Entity Inspector</div>
+
+    <div id="noEntity" style="{"display:none" if False else "display:block"}">
+      <div class="empty" style="min-height:160px;padding:0">
+        <div class="empty-ico">◈</div>
+        <div>NO ENTITY SELECTED</div>
+        <div style="font-size:9px;margin-top:3px">Click any graph node</div>
+      </div>
+    </div>
+
+    <div id="entityCard" style="display:none"></div>
+  </div>
+
+  <!-- Network metrics -->
+  <div class="psec">
+    <div class="ptitle">Network Metrics</div>
+    <div class="mgrid">
+      <div class="mcard"><div class="mval">{n_users}</div><div class="mlbl">Actors</div></div>
+      <div class="mcard"><div class="mval">{n_tweets}</div><div class="mlbl">Artifacts</div></div>
+      <div class="mcard"><div class="mval">{n_tags}</div><div class="mlbl">Topics</div></div>
+      <div class="mcard"><div class="mval">{n_edges_g}</div><div class="mlbl">Relations</div></div>
+    </div>
+    <div class="density-row">
+      <span>DENSITY</span>
+      <span style="color:var(--accent)">{round(n_edges_g / max((n_nodes) * max(n_nodes - 1, 1), 1), 5)}</span>
+    </div>
+  </div>
+
+  <!-- Investigation notes -->
+  <div class="psec" style="flex:1">
+    <div class="ptitle">Investigation Notes</div>
+    <textarea id="notes" placeholder="Type your analysis notes here…"
+      style="width:100%;min-height:140px;background:var(--input-bg);border:1px solid var(--border);
+             border-radius:3px;color:var(--text);font-family:'IBM Plex Mono',monospace;
+             font-size:10px;padding:9px;resize:vertical;outline:none;line-height:1.6"
+    ></textarea>
+  </div>
+</div><!-- /right-panel -->
+
+</div><!-- /shell -->
+
+
+<!-- ═══ JAVASCRIPT ═══ -->
 <script>
-(function waitForVis() {
-  if (typeof network !== 'undefined') {
-    network.on('click', function(params) {
-      if (params.nodes.length > 0) {
-        const nodeId = params.nodes[0];
-        const node   = network.body.data.nodes.get(nodeId);
-        window.parent.postMessage({ type: 'falconx_select', nodeId: nodeId, label: node.label, title: node.title || '' }, '*');
-      }
-    });
-  } else {
-    setTimeout(waitForVis, 200);
+// ── View switcher ──────────────────────────────────────────────────────────────
+function setView(v) {{
+  ['graph','ingest','raw'].forEach(function(id) {{
+    var el = document.getElementById('view-' + id);
+    if (el) el.style.display = (id === v) ? 'block' : 'none';
+  }});
+  document.querySelectorAll('.vtab').forEach(function(t) {{
+    t.classList.toggle('active', t.textContent.trim().toLowerCase() === v ||
+      (v === 'raw' && t.textContent.trim().toLowerCase() === 'table'));
+  }});
+  // notify python
+  window.parent.postMessage({{type:'falconx', action:'view', value: v}}, '*');
+}}
+
+// ── Theme toggle ───────────────────────────────────────────────────────────────
+function toggleTheme() {{
+  window.parent.postMessage({{type:'falconx', action:'theme',
+    value: '{theme}' === 'dark' ? 'light' : 'dark'}}, '*');
+}}
+
+// ── Control change → tell Streamlit to rerun ──────────────────────────────────
+function sendCtrl(key, val) {{
+  window.parent.postMessage({{type:'falconx', action:'ctrl', key:key, value:val}}, '*');
+}}
+
+// ── File upload trigger ────────────────────────────────────────────────────────
+function triggerUpload() {{
+  window.parent.postMessage({{type:'falconx', action:'upload'}}, '*');
+}}
+
+// ── Push trigger ───────────────────────────────────────────────────────────────
+function triggerPush() {{
+  window.parent.postMessage({{type:'falconx', action:'push'}}, '*');
+}}
+
+// ── Graph node click → entity inspector ───────────────────────────────────────
+// Receive click from pyvis iframe
+window.addEventListener('message', function(ev) {{
+  if (!ev.data) return;
+
+  // From pyvis iframe
+  if (ev.data.type === 'node_click') {{
+    showEntity(ev.data);
+  }}
+}});
+
+function showEntity(data) {{
+  document.getElementById('noEntity').style.display = 'none';
+  var card = document.getElementById('entityCard');
+  card.style.display = 'block';
+
+  var id    = data.nodeId   || '';
+  var label = data.label    || '';
+  var title = (data.title   || '').replace(/<[^>]*>/g, '');
+  var ntype = id.startsWith('user_')  ? 'user'    :
+              id.startsWith('tweet_') ? 'tweet'   :
+              id.startsWith('hash_')  ? 'hashtag' : 'unknown';
+
+  var badgeClass = 'badge-' + ntype;
+  var badgeText  = ntype.toUpperCase();
+  var displayLabel = label.replace(/\\n/g, ' ').substring(0, 48);
+
+  card.innerHTML =
+    '<div class="entity-card">' +
+      '<div class="ent-header">' +
+        '<span class="ent-badge ' + badgeClass + '">' + badgeText + '</span>' +
+        '<span class="ent-name">' + displayLabel + '</span>' +
+      '</div>' +
+      '<div class="ent-body">' +
+        '<div class="ent-field"><div class="ent-key">Node ID</div><div class="ent-val mono" style="font-size:9px;word-break:break-all">' + id + '</div></div>' +
+        '<div class="ent-field"><div class="ent-key">Details</div><div class="ent-val">' + title + '</div></div>' +
+      '</div>' +
+    '</div>';
+}}
+
+// ── Inject click listener into pyvis iframe ────────────────────────────────────
+function hookGraphFrame() {{
+  var frames = document.querySelectorAll('.graph-frame iframe');
+  frames.forEach(function(frame) {{
+    try {{
+      var win = frame.contentWindow;
+      if (!win) return;
+      // Poll until vis.js network is ready
+      var attempts = 0;
+      var poll = setInterval(function() {{
+        attempts++;
+        if (attempts > 60) {{ clearInterval(poll); return; }}
+        var net = win.network;
+        if (net) {{
+          clearInterval(poll);
+          net.on('click', function(params) {{
+            if (params.nodes && params.nodes.length > 0) {{
+              var nodeId = params.nodes[0];
+              var node   = net.body.data.nodes.get(nodeId);
+              if (node) {{
+                window.postMessage({{
+                  type:'node_click',
+                  nodeId: nodeId,
+                  label:  node.label  || '',
+                  title:  node.title  || ''
+                }}, '*');
+              }}
+            }}
+          }});
+        }}
+      }}, 300);
+    }} catch(e) {{}}
+  }});
+}}
+
+// Run after page loads
+window.addEventListener('load', function() {{
+  setTimeout(hookGraphFrame, 800);
+}});
+</script>
+
+</body>
+</html>"""
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# HANDLE MESSAGES FROM THE HTML (via URL params hack — Streamlit limitation)
+# We use a lightweight approach: hidden buttons + JS postMessage to parent
+# which then clicks the appropriate hidden Streamlit button
+# ════════════════════════════════════════════════════════════════════════════════
+
+# JS bridge that lives OUTSIDE the iframe, in the Streamlit page itself
+ST_BRIDGE = """
+<script>
+window.addEventListener('message', function(ev) {
+  if (!ev.data || ev.data.type !== 'falconx') return;
+  var d = ev.data;
+
+  if (d.action === 'upload') {
+    var inp = window.parent.document.querySelector('[data-testid="stFileUploader"] input[type=file]');
+    if (inp) inp.click();
   }
-})();
+  if (d.action === 'push') {
+    var btns = window.parent.document.querySelectorAll('[data-testid="stButton"] button');
+    btns.forEach(function(b){ if(b.innerText.trim()==='PUSH') b.click(); });
+  }
+  if (d.action === 'refresh') {
+    var btns = window.parent.document.querySelectorAll('[data-testid="stButton"] button');
+    btns.forEach(function(b){ if(b.innerText.trim()==='REFRESH') b.click(); });
+  }
+  if (d.action === 'theme') {
+    // Store in sessionStorage, reload
+    sessionStorage.setItem('falconx_theme', d.value);
+    var btns = window.parent.document.querySelectorAll('[data-testid="stButton"] button');
+    btns.forEach(function(b){ if(b.innerText.trim()==='THEME_'+d.value.toUpperCase()) b.click(); });
+  }
+});
 </script>
 """
-            html = html.replace("</body>", click_js + "</body>")
+st.markdown(ST_BRIDGE, unsafe_allow_html=True)
 
-            # Overlay labels
-            st.markdown(f"""
-            <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#1a3a50;
-                        letter-spacing:1px;padding:4px 0;display:flex;gap:16px">
-              <span>NODES <b style="color:#00a8ff">{nc}</b></span>
-              <span>EDGES <b style="color:#ff9500">{ec}</b></span>
-              <span>ACTORS <b style="color:#00e676">{n_users}</b></span>
-              <span style="margin-left:auto">LAYOUT: {st.session_state.layout_mode.upper()}</span>
-            </div>
-            """, unsafe_allow_html=True)
+# Theme buttons (hidden, triggered by JS)
+col1, col2 = st.columns(2)
+with col1:
+    if st.button("THEME_LIGHT", key="theme_light"):
+        st.session_state.theme = "light"
+        st.rerun()
+with col2:
+    if st.button("THEME_DARK", key="theme_dark"):
+        st.session_state.theme = "dark"
+        st.rerun()
 
-            components.html(html, height=720, scrolling=False)
+# Render the full HTML shell
+components.html(HTML, height=1000, scrolling=False)
 
-    elif view == "ingest":
-        st.markdown("""
-        <div style="padding:20px">
-          <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#00a8ff66;
-                      letter-spacing:3px;text-transform:uppercase;margin-bottom:12px">
-            Data Ingest // Zeeschuimer NDJSON
-          </div>
-          <div style="font-size:12px;color:#4a7090;line-height:1.7">
-            Use the file uploader in the left panel to load a Zeeschuimer <code style="color:#00a8ff;font-family:monospace">.ndjson</code> export.
-            Once parsed, click <b style="color:#00a8ff">PUSH TO NEO4J</b> to write entities and relationships to AuraDB.
-            Then switch to Graph view and click <b style="color:#00a8ff">REFRESH GRAPH</b>.
-          </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    elif view == "raw":
-        if rows:
-            import pandas as pd
-            df = pd.DataFrame(rows)
-            # Style the dataframe
-            st.markdown("""
-            <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#00a8ff66;
-                        letter-spacing:3px;text-transform:uppercase;margin-bottom:8px;padding-top:8px">
-              Raw Entity Table
-            </div>
-            """, unsafe_allow_html=True)
-            st.dataframe(
-                df[["screen_name", "tweet_id", "snippet", "hashtags"]],
-                use_container_width=True,
-                height=680,
-            )
-            st.download_button(
-                "⬇  EXPORT CSV",
-                df.to_csv(index=False).encode(),
-                "falconx_export.csv",
-                "text/csv",
-            )
-        else:
-            st.markdown('<div class="empty-state"><div class="empty-icon">◫</div><div>NO DATA</div></div>', unsafe_allow_html=True)
-
-
-# ── RIGHT PANEL — Entity detail ────────────────────────────────────────────────────
-with right_col:
-    st.markdown('<div class="panel-section"><div class="panel-title">Entity Inspector</div>', unsafe_allow_html=True)
-
-    sel = st.session_state.get("selected_node")
-
-    if not sel:
-        st.markdown("""
-        <div class="empty-state" style="min-height:200px">
-          <div class="empty-icon">◈</div>
-          <div>NO ENTITY SELECTED</div>
-          <div style="color:#0d2035;margin-top:4px">Click a graph node to inspect</div>
-        </div>
-        """, unsafe_allow_html=True)
-    else:
-        nid    = sel.get("id", "")
-        label  = sel.get("label", "")
-        ntype  = ("user"    if nid.startswith("user_")   else
-                  "tweet"   if nid.startswith("tweet_")  else "hashtag")
-        badge  = f'<span class="entity-type-badge badge-{ntype}">{ntype.upper()}</span>'
-
-        # Find full data
-        full_content = label
-        screen_name  = ""
-        tweet_id     = ""
-        tags         = []
-
-        if ntype == "user":
-            screen_name = nid.replace("user_", "")
-            user_rows   = [r for r in rows if r["screen_name"] == screen_name]
-            full_content = f"@{screen_name}"
-            tweet_count  = len(user_rows)
-            tag_set      = {t for r in user_rows for t in (r["hashtags"] or [])}
-
-        elif ntype == "tweet":
-            tweet_id = nid.replace("tweet_", "")
-            t_row    = next((r for r in rows if r["tweet_id"] == tweet_id), None)
-            if t_row:
-                full_content = t_row.get("content", label)
-                screen_name  = t_row.get("screen_name", "")
-                tags         = t_row.get("hashtags", [])
-
-        elif ntype == "hashtag":
-            tag_name  = nid.replace("hash_", "")
-            tag_rows  = [r for r in rows if tag_name in (r["hashtags"] or [])]
-            full_content = f"#{tag_name}"
-
-        st.markdown(f"""
-        <div class="entity-card">
-          <div class="entity-card-header">
-            {badge}
-            <span class="entity-label">{label.replace(chr(10), ' ')[:40]}</span>
-          </div>
-          <div class="entity-body">
-        """, unsafe_allow_html=True)
-
-        if ntype == "user":
-            st.markdown(f"""
-            <div class="entity-field">
-              <div class="entity-field-key">Screen Name</div>
-              <div class="entity-field-val mono">@{screen_name}</div>
-            </div>
-            <div class="entity-field">
-              <div class="entity-field-key">Tweets in Dataset</div>
-              <div class="entity-field-val mono">{tweet_count}</div>
-            </div>
-            <div class="entity-field">
-              <div class="entity-field-key">Hashtags Used</div>
-              <div class="entity-field-val mono">{len(tag_set)}</div>
-            </div>
-            <div class="entity-field">
-              <div class="entity-field-key">Top Tags</div>
-              <div class="entity-field-val">{"  ".join(f"#{t}" for t in list(tag_set)[:8]) or "—"}</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-        elif ntype == "tweet":
-            st.markdown(f"""
-            <div class="entity-field">
-              <div class="entity-field-key">Tweet ID</div>
-              <div class="entity-field-val mono">{tweet_id}</div>
-            </div>
-            <div class="entity-field">
-              <div class="entity-field-key">Author</div>
-              <div class="entity-field-val mono">@{screen_name}</div>
-            </div>
-            <div class="entity-field">
-              <div class="entity-field-key">Content</div>
-              <div class="entity-field-val">{full_content}</div>
-            </div>
-            <div class="entity-field">
-              <div class="entity-field-key">Hashtags</div>
-              <div class="entity-field-val">{"  ".join(f"#{t}" for t in tags) or "—"}</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-        elif ntype == "hashtag":
-            tag_name = nid.replace("hash_", "")
-            tag_rows = [r for r in rows if tag_name in (r["hashtags"] or [])]
-            authors  = {r["screen_name"] for r in tag_rows}
-            st.markdown(f"""
-            <div class="entity-field">
-              <div class="entity-field-key">Tag</div>
-              <div class="entity-field-val mono">#{tag_name}</div>
-            </div>
-            <div class="entity-field">
-              <div class="entity-field-key">Used in Tweets</div>
-              <div class="entity-field-val mono">{len(tag_rows)}</div>
-            </div>
-            <div class="entity-field">
-              <div class="entity-field-key">Unique Authors</div>
-              <div class="entity-field-val mono">{len(authors)}</div>
-            </div>
-            <div class="entity-field">
-              <div class="entity-field-key">Authors</div>
-              <div class="entity-field-val">{"  ".join(f"@{a}" for a in list(authors)[:10])}</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-        st.markdown('</div></div>', unsafe_allow_html=True)
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # ── Network metrics
-    if rows:
-        n_u, n_t, n_tg, n_e = compute_stats(rows)
-        density = round(n_e / max((n_u + n_t + n_tg) * ((n_u + n_t + n_tg) - 1), 1), 4)
-        st.markdown(f"""
-        <div class="panel-section">
-          <div class="panel-title">Network Metrics</div>
-          <div class="metric-grid">
-            <div class="metric-card"><div class="metric-val">{n_u}</div><div class="metric-lbl">Actors</div></div>
-            <div class="metric-card"><div class="metric-val">{n_t}</div><div class="metric-lbl">Artifacts</div></div>
-            <div class="metric-card"><div class="metric-val">{n_tg}</div><div class="metric-lbl">Topics</div></div>
-            <div class="metric-card"><div class="metric-val">{n_e}</div><div class="metric-lbl">Relations</div></div>
-          </div>
-          <div style="margin-top:10px;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#1e4060">
-            DENSITY: {density}
-          </div>
-        </div>
-        """, unsafe_allow_html=True)
+# ── JS to resize the component to fill the viewport ──────────────────────────
+st.markdown("""
+<script>
+(function() {
+  // Find the stCustomComponentV1 iframe and make it fill the viewport
+  function resizeShell() {
+    var frames = window.parent.document.querySelectorAll('iframe[title="stCustomComponentV1"]');
+    frames.forEach(function(f) {
+      f.style.height = (window.parent.innerHeight - 0) + 'px';
+      f.style.width  = '100%';
+      f.style.display = 'block';
+      f.style.border = 'none';
+    });
+  }
+  resizeShell();
+  window.parent.addEventListener('resize', resizeShell);
+  setTimeout(resizeShell, 500);
+})();
+</script>
+""", unsafe_allow_html=True)
