@@ -3,1268 +3,1247 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>FalconX — Investigation Platform</title>
+<title>FalconX — OSINT Investigation Platform</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.9/dist/vis-network.min.js"></script>
-<link href="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.9/dist/dist/vis-network.min.css" rel="stylesheet">
+<link  href="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.9/dist/dist/vis-network.min.css" rel="stylesheet">
 <script src="https://unpkg.com/neo4j-driver@5.18.0/lib/browser/neo4j-web.min.js"></script>
 
 <style>
-/* ─── DESIGN TOKENS ─────────────────────────────────────────── */
-:root {
-  --bg:         #f4f5f7;
-  --surface:    #ffffff;
-  --surface-2:  #f8f9fa;
-  --surface-3:  #eef0f3;
-  --border:     #dde1e7;
-  --border-2:   #c8cdd6;
+/* ════════════════════════════════════════
+   TOKENS
+════════════════════════════════════════ */
+:root{
+  --bg:       #fafafa;
+  --bg2:      #f4f4f5;
+  --bg3:      #e4e4e7;
+  --surface:  #ffffff;
+  --border:   rgba(0,0,0,.08);
+  --border2:  rgba(0,0,0,.14);
 
-  --text-pri:   #1a2332;
-  --text-sec:   #4a5568;
-  --text-ter:   #8896a8;
-  --text-4:     #b0bac8;
+  --tx:       #09090b;
+  --tx2:      #52525b;
+  --tx3:      #a1a1aa;
+  --tx4:      #d4d4d8;
 
-  --blue:       #1967d2;
-  --blue-lt:    #e8f0fe;
-  --blue-md:    #4285f4;
-  --blue-bd:    #1557b0;
+  --blue:     #2563eb;
+  --blue2:    #1d4ed8;
+  --blue-bg:  #eff6ff;
+  --blue-bd:  #bfdbfe;
 
-  --amber:      #b45309;
-  --amber-lt:   #fef3c7;
-  --amber-bd:   #d97706;
+  --green:    #16a34a;
+  --green-bg: #f0fdf4;
+  --green-bd: #bbf7d0;
 
-  --green:      #15803d;
-  --green-lt:   #dcfce7;
-  --green-bd:   #16a34a;
+  --amber:    #d97706;
+  --amber-bg: #fffbeb;
+  --amber-bd: #fde68a;
 
-  --red:        #dc2626;
-  --red-lt:     #fee2e2;
-  --red-bd:     #ef4444;
+  --red:      #dc2626;
+  --red-bg:   #fef2f2;
+  --red-bd:   #fecaca;
 
-  --purple:     #7c3aed;
-  --purple-lt:  #ede9fe;
+  --purple:   #7c3aed;
+  --purple-bg:#f5f3ff;
+  --purple-bd:#ddd6fe;
 
-  --topbar-h:   44px;
-  --toolbar-h:  40px;
-  --left-w:     256px;
-  --right-w:    300px;
-  --font:       'Inter', system-ui, sans-serif;
-  --mono:       'JetBrains Mono', monospace;
-}
+  --r:        6px;
+  --r2:       10px;
+  --sh:       0 1px 3px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04);
+  --sh2:      0 4px 12px rgba(0,0,0,.08),0 2px 4px rgba(0,0,0,.04);
 
-/* ─── RESET ─────────────────────────────────────────────────── */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { width: 100%; height: 100%; overflow: hidden; background: var(--bg); color: var(--text-pri); font-family: var(--font); font-size: 13px; -webkit-font-smoothing: antialiased; }
-::-webkit-scrollbar { width: 5px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 3px; }
-::selection { background: var(--blue-lt); }
+  --font:     'Geist','Inter',system-ui,sans-serif;
+  --mono:     'Geist Mono','JetBrains Mono',monospace;
 
-/* ─── APP SHELL ─────────────────────────────────────────────── */
-#app { display: flex; flex-direction: column; height: 100vh; }
-
-/* ─── TOPBAR ────────────────────────────────────────────────── */
-#topbar {
-  height: var(--topbar-h);
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  padding: 0 16px;
-  gap: 0;
-  flex-shrink: 0;
-  z-index: 100;
-}
-.tb-logo {
-  display: flex; align-items: center; gap: 9px;
-  padding-right: 20px;
-  border-right: 1px solid var(--border);
-  margin-right: 16px;
-}
-.tb-logo-icon {
-  width: 26px; height: 26px;
-  background: var(--blue);
-  border-radius: 5px;
-  display: flex; align-items: center; justify-content: center;
-  color: white; font-size: 13px; flex-shrink: 0;
-}
-.tb-logo-name {
-  font-size: 15px; font-weight: 600;
-  color: var(--text-pri); letter-spacing: -0.2px;
-}
-.tb-logo-ver {
-  font-size: 10px; color: var(--text-4);
-  font-family: var(--mono);
-  margin-top: 0px;
-}
-.tb-tab {
-  height: 100%;
-  display: flex; align-items: center;
-  padding: 0 14px;
-  font-size: 13px; font-weight: 500;
-  color: var(--text-sec);
-  border-bottom: 2px solid transparent;
-  cursor: pointer;
-  gap: 6px;
-  transition: color .15s;
-  white-space: nowrap;
-}
-.tb-tab:hover { color: var(--text-pri); }
-.tb-tab.active { color: var(--blue); border-bottom-color: var(--blue); }
-.tb-tab-icon { width: 14px; height: 14px; opacity: .7; }
-.tb-sep { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
-.tb-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
-.conn-pill {
-  display: flex; align-items: center; gap: 5px;
-  padding: 4px 10px; border-radius: 4px;
-  font-size: 11px; font-weight: 500;
-  font-family: var(--mono);
-}
-.conn-ok  { background: var(--green-lt); color: var(--green); }
-.conn-err { background: var(--red-lt);   color: var(--red); }
-.conn-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-.conn-ok  .conn-dot { background: var(--green); animation: blink 2s infinite; }
-.conn-err .conn-dot { background: var(--red); }
-@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
-.classif {
-  font-size: 10px; font-weight: 600;
-  font-family: var(--mono);
-  color: var(--amber); letter-spacing: .5px;
-  background: var(--amber-lt);
-  padding: 3px 8px; border-radius: 3px;
-  border: 1px solid var(--amber-bd);
-}
-.tb-icon-btn {
-  width: 30px; height: 30px;
-  border-radius: 4px; border: 1px solid var(--border);
-  background: transparent;
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; color: var(--text-sec);
-  font-size: 14px; transition: all .15s;
-}
-.tb-icon-btn:hover { background: var(--surface-3); color: var(--text-pri); }
-
-/* ─── MAIN AREA ─────────────────────────────────────────────── */
-#main { display: flex; flex: 1; overflow: hidden; }
-
-/* ─── LEFT PANEL ────────────────────────────────────────────── */
-#left {
-  width: var(--left-w);
-  flex-shrink: 0;
-  background: var(--surface);
-  border-right: 1px solid var(--border);
-  display: flex; flex-direction: column;
-  overflow: hidden;
-}
-.left-tabs {
-  display: flex;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-.lt-tab {
-  flex: 1; padding: 9px 0; text-align: center;
-  font-size: 11px; font-weight: 500;
-  color: var(--text-ter); cursor: pointer;
-  border-bottom: 2px solid transparent;
-  transition: all .15s;
-}
-.lt-tab:hover { color: var(--text-sec); }
-.lt-tab.active { color: var(--blue); border-bottom-color: var(--blue); }
-.left-body { flex: 1; overflow-y: auto; }
-.left-pane { display: none; }
-.left-pane.active { display: block; }
-
-.sec { padding: 12px 14px; border-bottom: 1px solid var(--border); }
-.sec:last-child { border-bottom: none; }
-.sec-title {
-  font-size: 10px; font-weight: 600;
-  color: var(--text-4); letter-spacing: .8px;
-  text-transform: uppercase;
-  margin-bottom: 10px;
+  --left:     280px;
+  --right:    340px;
+  --top:      48px;
+  --toolbar:  38px;
 }
 
-/* ─── FORM CONTROLS ─────────────────────────────────────────── */
-.field { margin-bottom: 8px; }
-.field label {
-  display: block; font-size: 11px; font-weight: 500;
-  color: var(--text-sec); margin-bottom: 4px;
-}
-.field input, .field select {
-  width: 100%; height: 30px; padding: 0 8px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 4px; color: var(--text-pri);
-  font-family: var(--font); font-size: 12px; outline: none;
-  transition: border-color .15s, box-shadow .15s;
-}
-.field input:focus, .field select:focus {
-  border-color: var(--blue-md);
-  box-shadow: 0 0 0 3px rgba(66,133,244,.12);
-}
-.field input::placeholder { color: var(--text-4); }
-.field input[type=password] { letter-spacing: .1em; }
-input[type=range] {
-  width: 100%; height: 3px;
-  appearance: none; -webkit-appearance: none;
-  background: var(--border-2); border-radius: 2px;
-  cursor: pointer; outline: none;
-}
-input[type=range]::-webkit-slider-thumb {
-  appearance: none; -webkit-appearance: none;
-  width: 14px; height: 14px; border-radius: 50%;
-  background: var(--blue); cursor: pointer;
-  border: 2px solid white;
-  box-shadow: 0 1px 3px rgba(0,0,0,.2);
-}
-.range-row {
-  display: flex; justify-content: space-between; align-items: center;
-  margin-bottom: 4px;
-}
-.range-label { font-size: 11px; font-weight: 500; color: var(--text-sec); }
-.range-val { font-size: 11px; font-family: var(--mono); color: var(--blue); font-weight: 500; }
-.chk-row { display: flex; align-items: center; gap: 7px; cursor: pointer; }
-.chk-row input[type=checkbox] { width: 13px; height: 13px; accent-color: var(--blue); cursor: pointer; }
-.chk-row span { font-size: 12px; color: var(--text-sec); cursor: pointer; }
+/* ════════════════════════════════════════
+   BASE
+════════════════════════════════════════ */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--tx);font-family:var(--font);font-size:13px;-webkit-font-smoothing:antialiased}
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--bg3);border-radius:2px}
+::selection{background:var(--blue-bg)}
 
-/* ─── BUTTONS ───────────────────────────────────────────────── */
-.btn {
-  display: flex; align-items: center; justify-content: center; gap: 5px;
-  width: 100%; height: 30px; padding: 0 10px;
-  border-radius: 4px; font-family: var(--font);
-  font-size: 12px; font-weight: 500;
-  cursor: pointer; transition: all .15s;
-  border: 1px solid var(--border);
-  background: var(--surface-2); color: var(--text-pri);
-  margin-bottom: 5px;
+/* ════════════════════════════════════════
+   APP SHELL
+════════════════════════════════════════ */
+#app{display:flex;flex-direction:column;height:100vh}
+
+/* ════════════════════════════════════════
+   TOPBAR
+════════════════════════════════════════ */
+#topbar{
+  height:var(--top);flex-shrink:0;
+  background:var(--surface);
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;
+  padding:0 14px;gap:0;
+  position:relative;z-index:200;
 }
-.btn:hover { background: var(--surface-3); border-color: var(--border-2); }
-.btn:active { transform: scale(.99); }
-.btn-primary { background: var(--blue); border-color: var(--blue-bd); color: white; }
-.btn-primary:hover { background: var(--blue-bd); }
-.btn-danger { color: var(--red); border-color: var(--red-lt); background: var(--red-lt); }
-.btn-danger:hover { background: #fecaca; border-color: var(--red-bd); }
-.btn-sm { height: 26px; font-size: 11px; padding: 0 8px; }
+.t-logo{display:flex;align-items:center;gap:8px;padding-right:16px;border-right:1px solid var(--border);margin-right:8px;text-decoration:none;color:inherit}
+.t-logo-mark{width:28px;height:28px;background:var(--blue);border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;box-shadow:0 2px 8px rgba(37,99,235,.3)}
+.t-logo-name{font-size:14px;font-weight:600;color:var(--tx);letter-spacing:-.3px}
+.t-logo-version{font-size:9px;font-family:var(--mono);color:var(--tx3);margin-left:4px}
 
-/* ─── LEGEND ────────────────────────────────────────────────── */
-.legend-item {
-  display: flex; align-items: center; gap: 9px;
-  padding: 6px 0; border-bottom: 1px solid var(--border);
-  font-size: 12px; color: var(--text-sec);
+/* case selector */
+.case-pill{
+  display:flex;align-items:center;gap:7px;
+  padding:5px 10px;margin:0 4px;
+  border:1px solid var(--border);border-radius:var(--r);
+  background:var(--bg);cursor:pointer;
+  font-size:12px;font-weight:500;color:var(--tx2);
+  transition:all .15s;
 }
-.legend-item:last-child { border-bottom: none; }
-.li-shape { flex-shrink: 0; }
-.li-circle { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--blue-md); background: var(--blue-lt); }
-.li-rect   { width: 20px; height: 12px; border: 2px solid var(--amber-bd); background: var(--amber-lt); border-radius: 2px; }
-.li-diamond{ width: 13px; height: 13px; border: 2px solid var(--green-bd); background: var(--green-lt); transform: rotate(45deg); }
-.li-count  { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--text-4); }
+.case-pill:hover{background:var(--surface);border-color:var(--border2);color:var(--tx)}
+.case-pill.active{background:var(--surface);border-color:var(--blue);color:var(--blue);box-shadow:0 0 0 3px rgba(37,99,235,.08)}
+.case-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.case-dot.open{background:var(--green)}
+.case-dot.closed{background:var(--tx3)}
 
-/* ─── STAT CARDS ────────────────────────────────────────────── */
-.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.stat-card { background: var(--surface-2); border: 1px solid var(--border); border-radius: 5px; padding: 9px 11px; }
-.stat-card-v { font-size: 20px; font-weight: 600; color: var(--blue); line-height: 1; font-family: var(--mono); }
-.stat-card-l { font-size: 10px; color: var(--text-4); margin-top: 3px; font-weight: 500; }
+.t-divider{width:1px;height:20px;background:var(--border);margin:0 6px}
+.t-right{margin-left:auto;display:flex;align-items:center;gap:6px}
 
-/* ─── UPLOAD ────────────────────────────────────────────────── */
-.upload-zone {
-  border: 1.5px dashed var(--border-2);
-  border-radius: 5px; background: var(--surface-2);
-  padding: 14px; text-align: center; cursor: pointer;
-  transition: all .15s; position: relative; overflow: hidden;
+.t-btn{
+  height:28px;padding:0 10px;
+  border:1px solid var(--border);border-radius:var(--r);
+  background:transparent;color:var(--tx2);
+  font-family:var(--font);font-size:12px;font-weight:500;
+  cursor:pointer;display:flex;align-items:center;gap:5px;
+  transition:all .15s;white-space:nowrap;
 }
-.upload-zone:hover { border-color: var(--blue-md); background: var(--blue-lt); }
-.upload-zone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
-.upload-txt { font-size: 11px; color: var(--text-ter); line-height: 1.5; pointer-events: none; }
-.upload-icon { font-size: 18px; margin-bottom: 5px; display: block; }
+.t-btn:hover{background:var(--bg2);color:var(--tx);border-color:var(--border2)}
+.t-btn.primary{background:var(--blue);border-color:var(--blue2);color:#fff}
+.t-btn.primary:hover{background:var(--blue2)}
+.t-btn.danger{color:var(--red);border-color:var(--red-bd);background:var(--red-bg)}
+.t-btn.danger:hover{background:#fecaca}
 
-/* ─── ALERTS ────────────────────────────────────────────────── */
-.alert { padding: 7px 10px; border-radius: 4px; font-size: 11px; margin-top: 8px; line-height: 1.5; }
-.alert-ok  { background: var(--green-lt); color: var(--green); border: 1px solid var(--green-bd); }
-.alert-err { background: var(--red-lt);   color: var(--red);   border: 1px solid var(--red-bd); }
-.alert-info{ background: var(--blue-lt);  color: var(--blue);  border: 1px solid var(--blue-md); }
+.status-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.status-dot.ok{background:var(--green);animation:pulse 2s infinite}
+.status-dot.err{background:var(--red)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 
-/* ─── CONFIRM BOX ───────────────────────────────────────────── */
-.confirm-box {
-  display: none; margin-top: 8px;
-  background: var(--red-lt); border: 1px solid var(--red-bd);
-  border-radius: 4px; padding: 10px;
+/* ════════════════════════════════════════
+   MAIN
+════════════════════════════════════════ */
+#main{display:flex;flex:1;overflow:hidden}
+
+/* ════════════════════════════════════════
+   LEFT PANEL
+════════════════════════════════════════ */
+#left{width:var(--left);flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+
+.panel-tabs{display:flex;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--bg)}
+.ptab{flex:1;padding:8px 4px;text-align:center;font-size:11px;font-weight:500;color:var(--tx3);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s;background:transparent;border-top:none;border-left:none;border-right:none;font-family:var(--font)}
+.ptab:hover{color:var(--tx2)}
+.ptab.active{color:var(--blue);border-bottom-color:var(--blue);background:var(--surface)}
+
+.panel-body{flex:1;overflow-y:auto}
+.pane{display:none;flex-direction:column}
+.pane.active{display:flex}
+
+.sec{padding:12px 14px;border-bottom:1px solid var(--border)}
+.sec:last-child{border-bottom:none}
+.sec-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.sec-title{font-size:10px;font-weight:600;color:var(--tx3);text-transform:uppercase;letter-spacing:.6px}
+.sec-action{font-size:10px;color:var(--blue);cursor:pointer;font-weight:500}
+.sec-action:hover{text-decoration:underline}
+
+/* ── subject card ── */
+.subject-card{background:var(--bg);border:1px solid var(--border);border-radius:var(--r2);padding:12px;margin-bottom:8px;display:flex;align-items:center;gap:10px;cursor:pointer;transition:all .15s}
+.subject-card:hover{border-color:var(--blue);background:var(--blue-bg)}
+.subject-card.active{border-color:var(--blue);background:var(--blue-bg);box-shadow:0 0 0 3px rgba(37,99,235,.08)}
+.subj-avatar{width:36px;height:36px;border-radius:50%;background:var(--blue);display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:600;flex-shrink:0}
+.subj-info{flex:1;min-width:0}
+.subj-name{font-size:13px;font-weight:600;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.subj-meta{font-size:10px;color:var(--tx3);margin-top:1px}
+.subj-actions{display:flex;gap:4px;flex-shrink:0}
+.icon-btn{width:26px;height:26px;border-radius:var(--r);border:1px solid var(--border);background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--tx3);font-size:12px;transition:all .15s}
+.icon-btn:hover{background:var(--bg2);border-color:var(--border2);color:var(--tx)}
+.icon-btn.danger:hover{background:var(--red-bg);border-color:var(--red-bd);color:var(--red)}
+
+/* ── form ── */
+.field{margin-bottom:8px}
+.field label{display:block;font-size:11px;font-weight:500;color:var(--tx2);margin-bottom:4px}
+.field input,.field select,.field textarea{
+  width:100%;padding:6px 9px;
+  background:var(--bg);border:1px solid var(--border);
+  border-radius:var(--r);color:var(--tx);
+  font-family:var(--font);font-size:12px;outline:none;
+  transition:border-color .15s,box-shadow .15s;
 }
-.confirm-box.visible { display: block; }
-.confirm-msg { font-size: 11px; color: var(--red); margin-bottom: 8px; font-weight: 500; }
-.confirm-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(37,99,235,.1)}
+.field input::placeholder,.field textarea::placeholder{color:var(--tx4)}
+.field textarea{resize:vertical;min-height:60px;line-height:1.5}
+input[type=range]{width:100%;height:3px;appearance:none;-webkit-appearance:none;background:var(--bg3);border-radius:2px;cursor:pointer;outline:none;border:none;padding:0}
+input[type=range]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--blue);cursor:pointer;border:2px solid #fff;box-shadow:var(--sh)}
+.range-row{display:flex;justify-content:space-between;margin-bottom:4px}
+.rl{font-size:11px;font-weight:500;color:var(--tx2)}
+.rv{font-size:11px;font-family:var(--mono);color:var(--blue);font-weight:500}
+.chk{display:flex;align-items:center;gap:7px;cursor:pointer;margin-bottom:6px}
+.chk input[type=checkbox]{width:13px;height:13px;accent-color:var(--blue);cursor:pointer}
+.chk span{font-size:12px;color:var(--tx2)}
 
-/* ─── CENTER ────────────────────────────────────────────────── */
-#center {
-  flex: 1; display: flex; flex-direction: column;
-  background: var(--bg); min-width: 0; position: relative;
-}
+/* ── btn ── */
+.btn{display:flex;align-items:center;justify-content:center;gap:5px;width:100%;height:30px;padding:0 10px;border-radius:var(--r);font-family:var(--font);font-size:12px;font-weight:500;cursor:pointer;transition:all .15s;border:1px solid var(--border);background:var(--bg);color:var(--tx);margin-bottom:5px}
+.btn:hover{background:var(--bg2);border-color:var(--border2)}
+.btn:active{transform:scale(.99)}
+.btn.primary{background:var(--blue);border-color:var(--blue2);color:#fff}
+.btn.primary:hover{background:var(--blue2)}
+.btn.danger{color:var(--red);border-color:var(--red-bd);background:var(--red-bg)}
+.btn.danger:hover{background:#fecaca}
+.btn.ghost{background:transparent;border-color:transparent;color:var(--tx2)}
+.btn.ghost:hover{background:var(--bg2)}
+.btn-row{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+
+/* ── stat grid ── */
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px}
+.stat-card{background:var(--bg);border:1px solid var(--border);border-radius:var(--r);padding:9px 11px}
+.stat-v{font-size:20px;font-weight:600;color:var(--blue);line-height:1;font-family:var(--mono)}
+.stat-l{font-size:9px;color:var(--tx3);margin-top:3px;font-weight:500;text-transform:uppercase;letter-spacing:.5px}
+
+/* ── legend ── */
+.leg{display:flex;align-items:center;gap:9px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;color:var(--tx2)}
+.leg:last-child{border-bottom:none}
+.leg-circle{width:12px;height:12px;border-radius:50%;border:2px solid var(--blue);background:var(--blue-bg);flex-shrink:0}
+.leg-box{width:18px;height:11px;border:2px solid var(--amber);background:var(--amber-bg);border-radius:2px;flex-shrink:0}
+.leg-dia{width:11px;height:11px;border:2px solid var(--green);background:var(--green-bg);transform:rotate(45deg);flex-shrink:0}
+.leg-ct{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--tx4);font-weight:500}
+
+/* ── alert ── */
+.alert{padding:8px 10px;border-radius:var(--r);font-size:11px;margin-top:8px;line-height:1.5;display:none}
+.alert.visible{display:block}
+.alert-ok{background:var(--green-bg);color:var(--green);border:1px solid var(--green-bd)}
+.alert-err{background:var(--red-bg);color:var(--red);border:1px solid var(--red-bd)}
+.alert-info{background:var(--blue-bg);color:var(--blue);border:1px solid var(--blue-bd)}
+
+/* upload */
+.upload-zone{border:1.5px dashed var(--border2);border-radius:var(--r2);background:var(--bg);padding:16px;text-align:center;cursor:pointer;transition:all .15s;position:relative;overflow:hidden}
+.upload-zone:hover{border-color:var(--blue);background:var(--blue-bg)}
+.upload-zone input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.upload-txt{font-size:11px;color:var(--tx3);line-height:1.6;pointer-events:none}
+
+/* confirm */
+.confirm-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:1000;align-items:center;justify-content:center;backdrop-filter:blur(2px)}
+.confirm-overlay.visible{display:flex}
+.confirm-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--r2);padding:20px;max-width:340px;width:90%;box-shadow:var(--sh2)}
+.confirm-title{font-size:14px;font-weight:600;color:var(--tx);margin-bottom:6px}
+.confirm-msg{font-size:12px;color:var(--tx2);line-height:1.6;margin-bottom:14px}
+.confirm-btns{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+
+/* ════════════════════════════════════════
+   CENTER
+════════════════════════════════════════ */
+#center{flex:1;display:flex;flex-direction:column;background:var(--bg);min-width:0;overflow:hidden}
 
 /* graph toolbar */
-#graph-toolbar {
-  height: var(--toolbar-h);
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  display: flex; align-items: center;
-  padding: 0 12px; gap: 6px;
-  flex-shrink: 0;
-}
-.gt-group { display: flex; align-items: center; gap: 3px; }
-.gt-sep { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
-.gt-btn {
-  height: 28px; padding: 0 10px;
-  border: 1px solid var(--border);
-  border-radius: 4px; background: var(--surface);
-  color: var(--text-sec); font-family: var(--font);
-  font-size: 12px; font-weight: 500;
-  cursor: pointer; display: flex; align-items: center; gap: 5px;
-  transition: all .15s; white-space: nowrap;
-}
-.gt-btn:hover { background: var(--surface-3); border-color: var(--border-2); color: var(--text-pri); }
-.gt-btn.active { background: var(--blue-lt); border-color: var(--blue-md); color: var(--blue); }
-.gt-btn svg { width: 12px; height: 12px; flex-shrink: 0; }
-.gt-right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
-.gt-stat { font-size: 11px; color: var(--text-ter); font-family: var(--mono); white-space: nowrap; }
-.gt-stat b { color: var(--text-sec); font-weight: 500; }
+#gtoolbar{height:var(--toolbar);flex-shrink:0;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 10px;gap:4px}
+.gt{height:26px;padding:0 8px;border:1px solid var(--border);border-radius:var(--r);background:transparent;color:var(--tx2);font-family:var(--font);font-size:11px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:4px;transition:all .15s;white-space:nowrap}
+.gt:hover{background:var(--bg2);border-color:var(--border2);color:var(--tx)}
+.gt.active{background:var(--blue-bg);border-color:var(--blue-bd);color:var(--blue)}
+.gt-sep{width:1px;height:18px;background:var(--border);margin:0 3px;flex-shrink:0}
+.gt-right{margin-left:auto;display:flex;align-items:center;gap:8px}
+.gt-stat{font-size:10px;color:var(--tx3);font-family:var(--mono);white-space:nowrap}
+.gt-stat b{color:var(--tx2);font-weight:500}
 
-/* graph canvas */
-#graph-wrap { flex: 1; position: relative; }
-#graph-canvas { position: absolute; inset: 0; }
+/* graph wrap */
+#gwrap{flex:1;position:relative}
+#gc{position:absolute;inset:0}
 
-/* empty state */
-#graph-empty {
-  position: absolute; inset: 0;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 8px; pointer-events: none;
-}
-.ge-icon { font-size: 36px; opacity: .15; margin-bottom: 4px; }
-.ge-title { font-size: 14px; font-weight: 500; color: var(--text-4); }
-.ge-sub   { font-size: 12px; color: var(--text-4); }
+/* empty */
+#gempty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;pointer-events:none}
+.ge-icon{font-size:40px;opacity:.12;margin-bottom:4px}
+.ge-t{font-size:14px;font-weight:500;color:var(--tx3)}
+.ge-s{font-size:12px;color:var(--tx4)}
 
 /* loading */
-#loading {
-  position: absolute; inset: 0;
-  background: rgba(244,245,247,.8);
-  display: none; align-items: center; justify-content: center;
-  flex-direction: column; gap: 12px; z-index: 50;
-  backdrop-filter: blur(2px);
-}
-#loading.on { display: flex; }
-.spin {
-  width: 28px; height: 28px;
-  border: 2px solid var(--border-2);
-  border-top-color: var(--blue);
-  border-radius: 50%;
-  animation: spin .7s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-.load-txt { font-size: 12px; color: var(--text-sec); font-weight: 500; }
+#gloading{position:absolute;inset:0;background:rgba(250,250,250,.85);display:none;align-items:center;justify-content:center;flex-direction:column;gap:10px;z-index:50;backdrop-filter:blur(2px)}
+#gloading.on{display:flex}
+.spin{width:24px;height:24px;border:2px solid var(--bg3);border-top-color:var(--blue);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.load-t{font-size:12px;color:var(--tx2);font-weight:500}
 
-/* search palette */
-#search-palette {
-  display: none;
-  position: absolute; top: 48px; left: 50%; transform: translateX(-50%);
-  width: 440px; z-index: 200;
-  background: var(--surface);
-  border: 1px solid var(--border-2);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0,0,0,.12), 0 2px 6px rgba(0,0,0,.06);
-  overflow: hidden;
-}
-#search-palette.open { display: block; }
-#search-input {
-  width: 100%; height: 44px; padding: 0 14px;
-  border: none; outline: none;
-  font-family: var(--font); font-size: 14px; color: var(--text-pri);
-  background: transparent;
-  border-bottom: 1px solid var(--border);
-}
-#search-input::placeholder { color: var(--text-4); }
-#search-results { max-height: 280px; overflow-y: auto; }
-.sr-item {
-  display: flex; align-items: center; gap: 10px;
-  padding: 9px 14px; cursor: pointer;
-  border-bottom: 1px solid var(--border);
-  transition: background .1s;
-}
-.sr-item:hover { background: var(--blue-lt); }
-.sr-item:last-child { border-bottom: none; }
-.sr-badge {
-  font-size: 9px; font-weight: 600; letter-spacing: .5px;
-  padding: 2px 6px; border-radius: 3px; flex-shrink: 0;
-  text-transform: uppercase;
-}
-.sr-actor    { background: var(--blue-lt);   color: var(--blue); }
-.sr-artifact { background: var(--amber-lt);  color: var(--amber); }
-.sr-topic    { background: var(--green-lt);  color: var(--green); }
-.sr-body { flex: 1; min-width: 0; }
-.sr-name { font-size: 13px; font-weight: 500; color: var(--text-pri); }
-.sr-sub  { font-size: 11px; color: var(--text-ter); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sr-empty { padding: 24px; text-align: center; font-size: 12px; color: var(--text-4); }
+/* table view */
+#tbl-view{display:none;flex:1;overflow:auto;padding:0}
+table{width:100%;border-collapse:collapse;font-size:12px}
+thead{position:sticky;top:0;background:var(--surface);z-index:10;border-bottom:2px solid var(--border)}
+th{padding:10px 14px;text-align:left;font-size:10px;font-weight:600;color:var(--tx3);text-transform:uppercase;letter-spacing:.6px;white-space:nowrap}
+td{padding:9px 14px;border-bottom:1px solid var(--border);color:var(--tx2);vertical-align:top}
+tr:hover td{background:var(--bg)}
 
-/* ─── RIGHT PANEL ───────────────────────────────────────────── */
-#right {
-  width: var(--right-w);
-  flex-shrink: 0;
-  background: var(--surface);
-  border-left: 1px solid var(--border);
-  display: flex; flex-direction: column;
-  overflow: hidden;
-}
-.right-header {
-  padding: 0 14px;
-  height: var(--toolbar-h);
-  border-bottom: 1px solid var(--border);
-  display: flex; align-items: center; justify-content: space-between;
-  flex-shrink: 0;
-}
-.right-title { font-size: 12px; font-weight: 600; color: var(--text-sec); letter-spacing: .3px; }
-.right-body { flex: 1; overflow-y: auto; }
+/* search */
+#search-pal{display:none;position:absolute;top:46px;left:50%;transform:translateX(-50%);width:460px;z-index:300;background:var(--surface);border:1px solid var(--border2);border-radius:var(--r2);box-shadow:var(--sh2);overflow:hidden}
+#search-pal.open{display:block}
+#si{width:100%;height:42px;padding:0 14px;border:none;outline:none;font-family:var(--font);font-size:13px;color:var(--tx);background:transparent;border-bottom:1px solid var(--border)}
+#si::placeholder{color:var(--tx4)}
+#sr{max-height:300px;overflow-y:auto}
+.sr-item{display:flex;align-items:center;gap:10px;padding:9px 14px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .1s}
+.sr-item:hover{background:var(--blue-bg)}
+.sr-item:last-child{border-bottom:none}
+.sr-badge{font-size:8px;font-weight:700;letter-spacing:.8px;padding:2px 6px;border-radius:3px;text-transform:uppercase;flex-shrink:0}
+.sr-actor{background:var(--blue-bg);color:var(--blue)}
+.sr-artifact{background:var(--amber-bg);color:var(--amber)}
+.sr-topic{background:var(--green-bg);color:var(--green)}
+.sr-body{flex:1;min-width:0}
+.sr-name{font-size:12px;font-weight:500;color:var(--tx)}
+.sr-sub{font-size:10px;color:var(--tx3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+.sr-empty{padding:20px;text-align:center;font-size:12px;color:var(--tx4)}
 
-/* empty inspector */
-.insp-empty {
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  padding: 48px 20px; gap: 8px;
-}
-.insp-empty-icon { font-size: 28px; opacity: .15; margin-bottom: 4px; }
-.insp-empty-title { font-size: 13px; font-weight: 500; color: var(--text-4); }
-.insp-empty-sub   { font-size: 11px; color: var(--text-4); text-align: center; }
+/* ════════════════════════════════════════
+   RIGHT PANEL
+════════════════════════════════════════ */
+#right{width:var(--right);flex-shrink:0;background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+.right-header{height:var(--toolbar);padding:0 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;background:var(--bg)}
+.right-title{font-size:11px;font-weight:600;color:var(--tx3);text-transform:uppercase;letter-spacing:.6px}
+.right-body{flex:1;overflow-y:auto}
 
-/* entity card */
-.ent-header {
-  padding: 12px 14px 10px;
-  border-bottom: 1px solid var(--border);
-}
-.ent-type-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-.ent-badge {
-  font-size: 9px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase;
-  padding: 2px 8px; border-radius: 3px;
-}
-.b-actor    { background: var(--blue-lt);   color: var(--blue); }
-.b-artifact { background: var(--amber-lt);  color: var(--amber); }
-.b-topic    { background: var(--green-lt);  color: var(--green); }
-.ent-name { font-size: 16px; font-weight: 600; color: var(--text-pri); word-break: break-word; }
-.ent-meta { font-size: 11px; color: var(--text-ter); margin-top: 3px; }
+/* inspector empty */
+.insp-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:48px 20px;gap:8px;text-align:center}
+.ie-icon{font-size:32px;opacity:.12;margin-bottom:6px}
+.ie-t{font-size:13px;font-weight:500;color:var(--tx3)}
+.ie-s{font-size:11px;color:var(--tx4)}
 
-.prop-list { padding: 10px 14px; border-bottom: 1px solid var(--border); }
-.prop-row { padding: 6px 0; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 2px; }
-.prop-row:last-child { border-bottom: none; }
-.prop-key { font-size: 10px; font-weight: 600; color: var(--text-4); text-transform: uppercase; letter-spacing: .5px; }
-.prop-val { font-size: 12px; color: var(--text-pri); word-break: break-word; line-height: 1.5; }
-.prop-val.mono { font-family: var(--mono); font-size: 11px; }
+/* entity inspector */
+.ent-avatar{width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;flex-shrink:0}
+.ent-avatar.actor{background:var(--blue-bg);color:var(--blue)}
+.ent-avatar.artifact{background:var(--amber-bg);color:var(--amber)}
+.ent-avatar.topic{background:var(--green-bg);color:var(--green)}
+.ent-head{padding:14px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:10px}
+.ent-head-info{flex:1;min-width:0}
+.ent-badge{font-size:8px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;padding:2px 7px;border-radius:3px;display:inline-block;margin-bottom:4px}
+.b-actor{background:var(--blue-bg);color:var(--blue)}
+.b-artifact{background:var(--amber-bg);color:var(--amber)}
+.b-topic{background:var(--green-bg);color:var(--green)}
+.ent-name{font-size:16px;font-weight:600;color:var(--tx);line-height:1.2;word-break:break-word}
+.ent-meta{font-size:11px;color:var(--tx3);margin-top:3px}
 
-/* tweet preview card */
-.tweet-card {
-  margin: 10px 14px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  overflow: hidden;
-}
-.tweet-card-head {
-  padding: 8px 11px;
-  border-bottom: 1px solid var(--border);
-  display: flex; align-items: center; justify-content: space-between;
-  background: var(--surface);
-}
-.tw-author { font-size: 12px; font-weight: 600; color: var(--blue); }
-.tw-id { font-size: 10px; color: var(--text-4); font-family: var(--mono); }
-.tweet-card-body { padding: 10px 11px; font-size: 12px; color: var(--text-pri); line-height: 1.7; }
-.tweet-card-tags { padding: 6px 11px 10px; display: flex; flex-wrap: wrap; gap: 4px; }
+.prop-section{padding:10px 14px;border-bottom:1px solid var(--border)}
+.prop-section-title{font-size:9px;font-weight:600;color:var(--tx4);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px}
+.prop-row{padding:5px 0;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:2px}
+.prop-row:last-child{border-bottom:none}
+.pk{font-size:9px;font-weight:600;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px}
+.pv{font-size:12px;color:var(--tx);line-height:1.5;word-break:break-word}
+.pv.mono{font-family:var(--mono);font-size:10px;color:var(--tx2)}
+
+/* tweet card */
+.tw-card{margin:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:var(--r2);overflow:hidden}
+.tw-card-head{padding:8px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:var(--surface)}
+.tw-author{font-size:12px;font-weight:600;color:var(--blue)}
+.tw-id{font-size:9px;font-family:var(--mono);color:var(--tx4)}
+.tw-body{padding:10px 12px;font-size:12px;color:var(--tx);line-height:1.75}
+.tw-tags{padding:6px 12px 10px;display:flex;flex-wrap:wrap;gap:4px}
 
 /* chips */
-.chip { display: inline-flex; align-items: center; font-size: 10px; font-weight: 500; padding: 2px 7px; border-radius: 100px; }
-.chip-blue   { background: var(--blue-lt);   color: var(--blue); }
-.chip-amber  { background: var(--amber-lt);  color: var(--amber); }
-.chip-green  { background: var(--green-lt);  color: var(--green); }
-.chip-purple { background: var(--purple-lt); color: var(--purple); }
+.chip{display:inline-flex;align-items:center;font-size:10px;font-weight:500;padding:2px 8px;border-radius:100px;white-space:nowrap}
+.chip-blue{background:var(--blue-bg);color:var(--blue)}
+.chip-green{background:var(--green-bg);color:var(--green)}
+.chip-amber{background:var(--amber-bg);color:var(--amber)}
+.chip-purple{background:var(--purple-bg);color:var(--purple)}
 
-/* notes area */
-.notes-wrap { padding: 10px 14px; flex: 1; display: flex; flex-direction: column; }
-textarea.notes {
-  flex: 1; min-height: 100px; resize: vertical;
-  background: var(--surface-2); border: 1px solid var(--border);
-  border-radius: 4px; color: var(--text-pri);
-  font-family: var(--font); font-size: 12px;
-  padding: 9px; outline: none; line-height: 1.6;
-  transition: border-color .15s, box-shadow .15s;
-}
-textarea.notes:focus { border-color: var(--blue-md); box-shadow: 0 0 0 3px rgba(66,133,244,.12); }
-textarea.notes::placeholder { color: var(--text-4); }
+/* ── notes ── */
+.notes-sec{padding:12px 14px;flex-shrink:0;border-top:1px solid var(--border)}
+textarea.notes{width:100%;min-height:90px;resize:vertical;background:var(--bg);border:1px solid var(--border);border-radius:var(--r);color:var(--tx);font-family:var(--font);font-size:12px;padding:8px 10px;outline:none;line-height:1.6;transition:border-color .15s,box-shadow .15s}
+textarea.notes:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(37,99,235,.1)}
+textarea.notes::placeholder{color:var(--tx4)}
 
-/* density row */
-.density-row {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 7px 0 0; border-top: 1px solid var(--border); margin-top: 7px;
-  font-size: 10px; color: var(--text-4);
-}
-.density-row span:last-child { font-family: var(--mono); color: var(--blue); font-weight: 500; }
+/* density */
+.density-row{display:flex;justify-content:space-between;font-size:10px;color:var(--tx3);padding-top:8px;border-top:1px solid var(--border);margin-top:8px}
+.density-row span:last-child{font-family:var(--mono);color:var(--blue);font-weight:500}
 
-/* ─── TOAST ──────────────────────────────────────────────────── */
-#toasts { position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
-.toast {
-  padding: 10px 14px; border-radius: 5px; font-size: 12px; font-weight: 500;
-  animation: toastIn .2s ease; max-width: 280px; pointer-events: none;
-  box-shadow: 0 2px 8px rgba(0,0,0,.12);
-}
-@keyframes toastIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-.toast-ok   { background: var(--green-lt); color: var(--green); border: 1px solid var(--green-bd); }
-.toast-err  { background: var(--red-lt);   color: var(--red);   border: 1px solid var(--red-bd); }
-.toast-info { background: var(--surface);  color: var(--text-sec); border: 1px solid var(--border-2); }
+/* ════════════════════════════════════════
+   MODAL — generic
+════════════════════════════════════════ */
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:500;align-items:center;justify-content:center;backdrop-filter:blur(3px)}
+.modal-bg.open{display:flex}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:var(--r2);padding:0;max-width:480px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,.15);overflow:hidden}
+.modal-head{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.modal-title{font-size:14px;font-weight:600;color:var(--tx)}
+.modal-close{width:26px;height:26px;border-radius:var(--r);border:none;background:transparent;cursor:pointer;color:var(--tx3);font-size:16px;display:flex;align-items:center;justify-content:center}
+.modal-close:hover{background:var(--bg2);color:var(--tx)}
+.modal-body{padding:18px}
+.modal-foot{padding:12px 18px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px}
+.modal-foot .btn{width:auto;height:30px}
+
+/* ════════════════════════════════════════
+   EXPORT PANEL
+════════════════════════════════════════ */
+.export-option{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid var(--border);border-radius:var(--r2);cursor:pointer;transition:all .15s;margin-bottom:8px}
+.export-option:hover{border-color:var(--blue);background:var(--blue-bg)}
+.export-option:last-child{margin-bottom:0}
+.export-icon{width:36px;height:36px;border-radius:var(--r);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+.export-info{flex:1}
+.export-name{font-size:13px;font-weight:600;color:var(--tx)}
+.export-desc{font-size:11px;color:var(--tx3);margin-top:2px}
+
+/* ════════════════════════════════════════
+   TOAST
+════════════════════════════════════════ */
+#toasts{position:fixed;bottom:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:5px;pointer-events:none}
+.toast{padding:10px 14px;border-radius:var(--r);font-size:12px;font-weight:500;animation:ti .2s ease;max-width:280px;box-shadow:var(--sh2)}
+@keyframes ti{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.tok{background:var(--green-bg);color:var(--green);border:1px solid var(--green-bd)}
+.terr{background:var(--red-bg);color:var(--red);border:1px solid var(--red-bd)}
+.tinfo{background:var(--surface);color:var(--tx2);border:1px solid var(--border2)}
 </style>
 </head>
 <body>
 <div id="app">
 
-<!-- ═══ TOPBAR ════════════════════════════════════════════════ -->
+<!-- ══ TOPBAR ══════════════════════════════════════════════════ -->
 <div id="topbar">
-  <div class="tb-logo">
-    <div class="tb-logo-icon">🦅</div>
-    <div>
-      <div class="tb-logo-name">FalconX</div>
-      <div class="tb-logo-ver">OSINT v2.0</div>
+  <div class="t-logo">
+    <div class="t-logo-mark">🦅</div>
+    <div><span class="t-logo-name">FalconX</span><span class="t-logo-version">OSINT</span></div>
+  </div>
+
+  <!-- active investigation cases -->
+  <div id="case-strip" style="display:flex;align-items:center;gap:4px;padding:0 8px;border-right:1px solid var(--border);margin-right:8px"></div>
+  <button class="t-btn" onclick="openNewCase()">+ New Case</button>
+
+  <div class="t-divider"></div>
+
+  <div class="t-right">
+    <div id="conn-indicator" style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--tx3)">
+      <span class="status-dot err" id="conn-dot"></span>
+      <span id="conn-text">Disconnected</span>
     </div>
-  </div>
-
-  <div class="tb-tab active" onclick="setMainTab('graph',this)">
-    <svg class="tb-tab-icon" viewBox="0 0 16 16" fill="currentColor"><circle cx="3" cy="8" r="2"/><circle cx="13" cy="3" r="2"/><circle cx="13" cy="13" r="2"/><line x1="5" y1="8" x2="11" y2="3.5" stroke="currentColor" stroke-width="1.2"/><line x1="5" y1="8" x2="11" y2="12.5" stroke="currentColor" stroke-width="1.2"/></svg>
-    Graph
-  </div>
-  <div class="tb-tab" onclick="setMainTab('table',this)">
-    <svg class="tb-tab-icon" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="14" height="3" rx="1"/><rect x="1" y="6" width="14" height="3" rx="1" opacity=".6"/><rect x="1" y="11" width="14" height="3" rx="1" opacity=".3"/></svg>
-    Table
-  </div>
-
-  <div class="tb-right">
-    <div id="conn-badge" class="conn-pill conn-err"><span class="conn-dot"></span><span id="conn-text">Disconnected</span></div>
-    <div class="classif">UNCLASSIFIED // OSINT</div>
-    <div class="tb-icon-btn" title="Help" onclick="showHelp()">?</div>
+    <button class="t-btn" onclick="openDB()">⚡ Database</button>
+    <button class="t-btn" onclick="openExport()">↓ Export</button>
+    <button class="t-btn primary" onclick="openSubjectModal()">+ Add Subject</button>
   </div>
 </div>
 
-<!-- ═══ MAIN ══════════════════════════════════════════════════ -->
+<!-- ══ MAIN ════════════════════════════════════════════════════ -->
 <div id="main">
 
-  <!-- LEFT PANEL -->
-  <div id="left">
-    <div class="left-tabs">
-      <div class="lt-tab active" onclick="setLeftTab('controls',this)">Controls</div>
-      <div class="lt-tab" onclick="setLeftTab('ingest',this)">Ingest</div>
-      <div class="lt-tab" onclick="setLeftTab('connect',this)">Database</div>
+<!-- LEFT PANEL ──────────────────────────────────────────────── -->
+<div id="left">
+  <div class="panel-tabs">
+    <button class="ptab active" onclick="setPtab('subjects',this)">Subjects</button>
+    <button class="ptab" onclick="setPtab('graph',this)">Graph</button>
+    <button class="ptab" onclick="setPtab('ingest',this)">Ingest</button>
+  </div>
+  <div class="panel-body">
+
+    <!-- SUBJECTS PANE -->
+    <div class="pane active" id="pane-subjects">
+      <div class="sec">
+        <div class="sec-head">
+          <span class="sec-title">Investigation Subjects</span>
+          <span class="sec-action" onclick="openSubjectModal()">+ Add</span>
+        </div>
+        <div id="subject-list"></div>
+        <div id="no-subjects" style="text-align:center;padding:20px 0;font-size:12px;color:var(--tx4)">No subjects yet.<br>Add a Twitter/X username to investigate.</div>
+      </div>
+      <div class="sec" id="subject-stats-sec" style="display:none">
+        <div class="sec-title" style="margin-bottom:10px">Subject Overview</div>
+        <div class="stat-grid">
+          <div class="stat-card"><div class="stat-v" id="ss-tweets">0</div><div class="stat-l">Tweets</div></div>
+          <div class="stat-card"><div class="stat-v" id="ss-topics">0</div><div class="stat-l">Topics</div></div>
+          <div class="stat-card"><div class="stat-v" id="ss-coactors">0</div><div class="stat-l">Co-actors</div></div>
+          <div class="stat-card"><div class="stat-v" id="ss-relations">0</div><div class="stat-l">Relations</div></div>
+        </div>
+      </div>
     </div>
-    <div class="left-body">
 
-      <!-- CONTROLS PANE -->
-      <div class="left-pane active" id="pane-controls">
-        <div class="sec">
-          <div class="sec-title">Graph Options</div>
-          <div style="margin-bottom:10px">
-            <div class="range-row">
-              <span class="range-label">Node limit</span>
-              <span class="range-val" id="lv">300</span>
-            </div>
-            <input type="range" id="limit-r" min="50" max="1000" step="50" value="300"
-              oninput="document.getElementById('lv').textContent=this.value">
-          </div>
-          <div class="field">
-            <label>Filter by actor</label>
-            <input type="text" id="filter-actor" placeholder="@username…">
-          </div>
-          <div class="field">
-            <label>Layout</label>
-            <select id="layout-sel">
-              <option value="force">Force-directed</option>
-              <option value="hier">Hierarchical (top-down)</option>
-            </select>
-          </div>
-          <div class="chk-row" style="margin-bottom:10px">
-            <input type="checkbox" id="show-tags" checked>
-            <span>Show hashtag nodes</span>
-          </div>
-          <button class="btn btn-primary" onclick="loadGraph()">
-            <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/><path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/></svg>
-            Refresh Graph
-          </button>
+    <!-- GRAPH PANE -->
+    <div class="pane" id="pane-graph">
+      <div class="sec">
+        <div class="sec-title" style="margin-bottom:10px">Graph Controls</div>
+        <div style="margin-bottom:10px">
+          <div class="range-row"><span class="rl">Node limit</span><span class="rv" id="lv">300</span></div>
+          <input type="range" id="lr" min="50" max="1000" step="50" value="300" oninput="document.getElementById('lv').textContent=this.value">
         </div>
-
-        <div class="sec">
-          <div class="sec-title">Entity Legend</div>
-          <div class="legend-item"><div class="li-shape"><div class="li-circle"></div></div><span>Actor / User</span><span class="li-count" id="lc-actors">0</span></div>
-          <div class="legend-item"><div class="li-shape"><div class="li-rect"></div></div><span>Artifact / Tweet</span><span class="li-count" id="lc-tweets">0</span></div>
-          <div class="legend-item"><div class="li-shape"><div class="li-diamond"></div></div><span>Topic / Hashtag</span><span class="li-count" id="lc-tags">0</span></div>
+        <div class="field"><label>Filter actor</label><input type="text" id="fa" placeholder="@username…"></div>
+        <div class="field">
+          <label>Layout</label>
+          <select id="ls"><option value="force">Force-directed</option><option value="hier">Hierarchical (top-down)</option></select>
         </div>
+        <div class="chk"><input type="checkbox" id="st" checked><span>Show hashtag nodes</span></div>
+        <button class="btn primary" onclick="loadGraph()">⟳ Refresh Graph</button>
+      </div>
+      <div class="sec">
+        <div class="sec-title" style="margin-bottom:8px">Entity Legend</div>
+        <div class="leg"><div class="leg-circle"></div><span>Actor / User</span><span class="leg-ct" id="lc-a">0</span></div>
+        <div class="leg"><div class="leg-box"></div><span>Artifact / Tweet</span><span class="leg-ct" id="lc-t">0</span></div>
+        <div class="leg"><div class="leg-dia"></div><span>Topic / Hashtag</span><span class="leg-ct" id="lc-h">0</span></div>
+      </div>
+      <div class="sec">
+        <div class="sec-title" style="margin-bottom:8px">Network Metrics</div>
+        <div class="stat-grid">
+          <div class="stat-card"><div class="stat-v" id="m-a">0</div><div class="stat-l">Actors</div></div>
+          <div class="stat-card"><div class="stat-v" id="m-t">0</div><div class="stat-l">Artifacts</div></div>
+          <div class="stat-card"><div class="stat-v" id="m-h">0</div><div class="stat-l">Topics</div></div>
+          <div class="stat-card"><div class="stat-v" id="m-e">0</div><div class="stat-l">Relations</div></div>
+        </div>
+        <div class="density-row"><span>Graph Density</span><span id="m-d">—</span></div>
+      </div>
+    </div>
 
-        <div class="sec">
-          <div class="sec-title">Network Metrics</div>
+    <!-- INGEST PANE -->
+    <div class="pane" id="pane-ingest">
+      <div class="sec">
+        <div class="sec-title" style="margin-bottom:10px">Upload Zeeschuimer Export</div>
+        <div class="upload-zone" id="uz">
+          <input type="file" id="fi" accept=".ndjson,.jsonl,.json">
+          <div style="font-size:20px;margin-bottom:6px">📂</div>
+          <div class="upload-txt" id="ut">Drop .ndjson or click to select<br><span style="font-size:10px;color:var(--tx4)">Zeeschuimer Twitter/X export</span></div>
+        </div>
+        <div id="ingest-stats" style="display:none;margin-top:10px">
           <div class="stat-grid">
-            <div class="stat-card"><div class="stat-card-v" id="m-actors">0</div><div class="stat-card-l">Actors</div></div>
-            <div class="stat-card"><div class="stat-card-v" id="m-artifacts">0</div><div class="stat-card-l">Artifacts</div></div>
-            <div class="stat-card"><div class="stat-card-v" id="m-topics">0</div><div class="stat-card-l">Topics</div></div>
-            <div class="stat-card"><div class="stat-card-v" id="m-edges">0</div><div class="stat-card-l">Relations</div></div>
+            <div class="stat-card"><div class="stat-v" id="is-p">0</div><div class="stat-l">Parsed</div></div>
+            <div class="stat-card"><div class="stat-v" id="is-a">0</div><div class="stat-l">Actors</div></div>
+            <div class="stat-card"><div class="stat-v" id="is-t">0</div><div class="stat-l">Tweets</div></div>
+            <div class="stat-card"><div class="stat-v" id="is-h">0</div><div class="stat-l">Topics</div></div>
           </div>
-          <div class="density-row"><span>Graph Density</span><span id="m-density">—</span></div>
+          <button class="btn primary" style="margin-top:8px" onclick="pushData()">⬆ Push to Neo4j</button>
         </div>
+        <div id="ia" class="alert"></div>
       </div>
+    </div>
 
-      <!-- INGEST PANE -->
-      <div class="left-pane" id="pane-ingest">
-        <div class="sec">
-          <div class="sec-title">Upload Dataset</div>
-          <div class="upload-zone" id="upload-zone">
-            <input type="file" id="file-input" accept=".ndjson,.jsonl,.json">
-            <span class="upload-icon">📂</span>
-            <div class="upload-txt" id="upload-txt">Drop .ndjson or click<br>to upload Zeeschuimer export</div>
-          </div>
-          <div id="ingest-stats" style="display:none;margin-top:10px">
-            <div class="stat-grid">
-              <div class="stat-card"><div class="stat-card-v" id="is-parsed">0</div><div class="stat-card-l">Parsed</div></div>
-              <div class="stat-card"><div class="stat-card-v" id="is-actors">0</div><div class="stat-card-l">Actors</div></div>
-              <div class="stat-card"><div class="stat-card-v" id="is-tweets">0</div><div class="stat-card-l">Artifacts</div></div>
-              <div class="stat-card"><div class="stat-card-v" id="is-tags">0</div><div class="stat-card-l">Topics</div></div>
-            </div>
-            <button class="btn btn-primary" style="margin-top:8px" onclick="pushToNeo4j()">⬆ Push to Neo4j</button>
-          </div>
-          <div id="ingest-alert"></div>
-        </div>
-      </div>
+  </div><!-- /panel-body -->
+</div><!-- /left -->
 
-      <!-- DATABASE PANE -->
-      <div class="left-pane" id="pane-connect">
-        <div class="sec">
-          <div class="sec-title">Connection</div>
-          <div class="field"><label>Neo4j URI</label><input type="text" id="cfg-uri" placeholder="neo4j+s://xxx.databases.neo4j.io"></div>
-          <div class="field"><label>Username</label><input type="text" id="cfg-user" value="neo4j"></div>
-          <div class="field"><label>Password</label><input type="password" id="cfg-pass" placeholder="AuraDB password"></div>
-          <button class="btn btn-primary" onclick="connectDB()">⚡ Connect to AuraDB</button>
-          <div id="conn-alert"></div>
-        </div>
-        <div class="sec">
-          <div class="sec-title">Danger Zone</div>
-          <button class="btn btn-danger" onclick="showConfirm()">🗑 Reset All Data</button>
-          <div class="confirm-box" id="confirm-box">
-            <div class="confirm-msg">This will permanently delete all nodes and relationships from Neo4j. Are you sure?</div>
-            <div class="confirm-btns">
-              <button class="btn btn-danger btn-sm" onclick="doReset()">Yes, delete all</button>
-              <button class="btn btn-sm" onclick="hideConfirm()">Cancel</button>
-            </div>
-          </div>
-        </div>
-      </div>
-
+<!-- CENTER ───────────────────────────────────────────────────── -->
+<div id="center">
+  <div id="gtoolbar">
+    <div class="gt" onclick="gFit()">⊞ Fit</div>
+    <div class="gt" onclick="gZoomIn()">＋</div>
+    <div class="gt" onclick="gZoomOut()">－</div>
+    <div class="gt-sep"></div>
+    <div class="gt" onclick="togglePhysics()" id="phys-btn">⚛ Physics</div>
+    <div class="gt" onclick="toggleSearch()">⌕ Search <span style="font-size:9px;color:var(--tx4);margin-left:2px">⌘K</span></div>
+    <div class="gt" onclick="switchView('graph')" id="view-graph" style="display:none">Graph</div>
+    <div class="gt" onclick="switchView('table')" id="view-table">Table ↗</div>
+    <div class="gt" onclick="gExportPNG()">↓ PNG</div>
+    <div class="gt-right">
+      <span class="gt-stat">Nodes <b id="gb-n">0</b></span>
+      <span class="gt-stat">·</span>
+      <span class="gt-stat">Edges <b id="gb-e">0</b></span>
     </div>
   </div>
 
-  <!-- CENTER -->
-  <div id="center">
-    <!-- graph toolbar -->
-    <div id="graph-toolbar">
-      <div class="gt-group">
-        <button class="gt-btn" onclick="graphFit()">
-          <svg viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 1h4a.5.5 0 0 1 0 1h-4a.5.5 0 0 1 0-1zm9 0h4a.5.5 0 0 1 0 1h-4a.5.5 0 0 1 0-1zm-9 13h4a.5.5 0 0 1 0 1h-4a.5.5 0 0 1 0-1zm9 0h4a.5.5 0 0 1 0 1h-4a.5.5 0 0 1 0-1z"/><path d="M0 1.5v4a.5.5 0 0 0 1 0v-4a.5.5 0 0 0-1 0zm0 9v4a.5.5 0 0 0 1 0v-4a.5.5 0 0 0-1 0zm15-9v4a.5.5 0 0 0-1 0v-4a.5.5 0 0 0 1 0zm0 9v4a.5.5 0 0 0-1 0v-4a.5.5 0 0 0 1 0z"/></svg>
-          Fit View
-        </button>
-        <button class="gt-btn" onclick="graphZoomIn()">＋ Zoom In</button>
-        <button class="gt-btn" onclick="graphZoomOut()">－ Zoom Out</button>
-      </div>
-      <div class="gt-sep"></div>
-      <div class="gt-group">
-        <button class="gt-btn" onclick="togglePhysics()" id="physics-btn">⚛ Physics: Off</button>
-        <button class="gt-btn" onclick="toggleSearch()">⌕ Search <span style="font-size:10px;color:var(--text-4);margin-left:2px">⌘K</span></button>
-        <button class="gt-btn" onclick="exportPNG()">↓ Export PNG</button>
-      </div>
-      <div class="gt-right">
-        <span class="gt-stat">Nodes <b id="gb-nodes">0</b></span>
-        <span class="gt-stat">·</span>
-        <span class="gt-stat">Edges <b id="gb-edges">0</b></span>
-        <span class="gt-stat">·</span>
-        <span class="gt-stat" id="gb-layout" style="text-transform:capitalize">Force</span>
-      </div>
-    </div>
-
-    <!-- graph area -->
-    <div id="graph-wrap">
-      <div id="graph-canvas"></div>
-      <div id="graph-empty">
-        <div class="ge-icon">◈</div>
-        <div class="ge-title">No graph data</div>
-        <div class="ge-sub">Connect to AuraDB and click Refresh Graph</div>
-      </div>
-      <div id="loading">
-        <div class="spin"></div>
-        <div class="load-txt">Loading graph…</div>
-      </div>
-    </div>
-
-    <!-- table view (hidden by default) -->
-    <div id="table-view" style="display:none;flex:1;overflow:auto;padding:16px">
-      <table id="data-table" style="width:100%;border-collapse:collapse;font-size:12px">
-        <thead>
-          <tr style="background:var(--surface);border-bottom:2px solid var(--border)">
-            <th style="padding:9px 12px;text-align:left;font-weight:600;color:var(--text-sec);font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">Actor</th>
-            <th style="padding:9px 12px;text-align:left;font-weight:600;color:var(--text-sec);font-size:11px;text-transform:uppercase;letter-spacing:.5px">Tweet ID</th>
-            <th style="padding:9px 12px;text-align:left;font-weight:600;color:var(--text-sec);font-size:11px;text-transform:uppercase;letter-spacing:.5px">Content</th>
-            <th style="padding:9px 12px;text-align:left;font-weight:600;color:var(--text-sec);font-size:11px;text-transform:uppercase;letter-spacing:.5px">Topics</th>
-          </tr>
-        </thead>
-        <tbody id="table-body"></tbody>
-      </table>
-      <div id="table-empty" style="text-align:center;padding:48px;color:var(--text-4);font-size:13px;display:none">No data in database</div>
-    </div>
-
-    <!-- search palette -->
-    <div id="search-palette">
-      <input type="text" id="search-input" placeholder="Search actors, topics, tweet content…" oninput="handleSearch(this.value)">
-      <div id="search-results"></div>
+  <div id="gwrap">
+    <div id="gc"></div>
+    <div id="gempty"><div class="ge-icon">◈</div><div class="ge-t">No investigation data</div><div class="ge-s">Add a subject and ingest their data</div></div>
+    <div id="gloading"><div class="spin"></div><div class="load-t">Building graph…</div></div>
+    <div id="search-pal">
+      <input type="text" id="si" placeholder="Search actors, tweets, topics…" oninput="doSearch(this.value)">
+      <div id="sr"></div>
     </div>
   </div>
 
-  <!-- RIGHT PANEL -->
-  <div id="right">
-    <div class="right-header">
-      <span class="right-title">Object Inspector</span>
-      <span style="font-size:10px;color:var(--text-4)">Click a node</span>
-    </div>
-    <div class="right-body">
-      <div id="insp-empty" class="insp-empty">
-        <div class="insp-empty-icon">◈</div>
-        <div class="insp-empty-title">No object selected</div>
-        <div class="insp-empty-sub">Click any node in the<br>graph to inspect it</div>
-      </div>
-      <div id="insp-content" style="display:none"></div>
-    </div>
+  <div id="tbl-view">
+    <table><thead><tr><th>Actor</th><th>Tweet ID</th><th>Content</th><th>Topics</th></tr></thead><tbody id="tb"></tbody></table>
+    <div id="tbl-empty" style="display:none;text-align:center;padding:48px;font-size:13px;color:var(--tx4)">No data loaded</div>
+  </div>
+</div>
 
-    <!-- Notes always at bottom -->
-    <div style="border-top:1px solid var(--border);flex-shrink:0">
-      <div class="notes-wrap">
-        <div class="sec-title" style="margin-bottom:8px">Investigation Notes</div>
-        <textarea class="notes" id="inv-notes" placeholder="Record observations, hypotheses, leads…"></textarea>
-      </div>
+<!-- RIGHT PANEL ─────────────────────────────────────────────── -->
+<div id="right">
+  <div class="right-header">
+    <span class="right-title">Object Inspector</span>
+    <span id="insp-actions" style="display:flex;gap:4px"></span>
+  </div>
+  <div class="right-body">
+    <div id="ie" class="insp-empty"><div class="ie-icon">◈</div><div class="ie-t">No object selected</div><div class="ie-s">Click any graph node to inspect</div></div>
+    <div id="ic" style="display:none"></div>
+  </div>
+  <div class="notes-sec">
+    <div class="sec-title" style="margin-bottom:6px">Investigation Notes</div>
+    <textarea class="notes" id="notes" placeholder="Record findings, hypotheses, leads, IOCs…"></textarea>
+    <div style="margin-top:6px;display:flex;justify-content:flex-end">
+      <button class="btn ghost" style="width:auto;height:24px;font-size:11px" onclick="saveNotes()">Save Notes</button>
     </div>
   </div>
+</div>
 
 </div><!-- /main -->
 </div><!-- /app -->
 
-<div id="toasts"></div>
+<!-- ════════════════════════════════════════
+     MODALS
+════════════════════════════════════════ -->
 
-<!-- ══════════════════════════════════════════════════════════
+<!-- New Subject -->
+<div class="modal-bg" id="m-subject">
+  <div class="modal">
+    <div class="modal-head"><span class="modal-title">Add Investigation Subject</span><button class="modal-close" onclick="closeModal('m-subject')">✕</button></div>
+    <div class="modal-body">
+      <div class="field"><label>Twitter/X Username</label><input type="text" id="subj-user" placeholder="@username (without @)"></div>
+      <div class="field"><label>Display Name (optional)</label><input type="text" id="subj-name" placeholder="e.g. John Doe"></div>
+      <div class="field"><label>Case / Investigation</label><input type="text" id="subj-case" placeholder="e.g. Operation Alpha"></div>
+      <div class="field"><label>Notes</label><textarea id="subj-notes" placeholder="Initial observations, context…"></textarea></div>
+    </div>
+    <div class="modal-foot"><button class="btn" style="width:auto" onclick="closeModal('m-subject')">Cancel</button><button class="btn primary" style="width:auto" onclick="addSubject()">Add Subject</button></div>
+  </div>
+</div>
+
+<!-- New Case -->
+<div class="modal-bg" id="m-case">
+  <div class="modal">
+    <div class="modal-head"><span class="modal-title">New Investigation Case</span><button class="modal-close" onclick="closeModal('m-case')">✕</button></div>
+    <div class="modal-body">
+      <div class="field"><label>Case Name</label><input type="text" id="case-name" placeholder="e.g. Operation Sandstorm"></div>
+      <div class="field"><label>Description</label><textarea id="case-desc" placeholder="Investigation scope, objectives…"></textarea></div>
+      <div class="field"><label>Classification</label>
+        <select id="case-class"><option>UNCLASSIFIED</option><option>SENSITIVE</option><option>CONFIDENTIAL</option></select>
+      </div>
+    </div>
+    <div class="modal-foot"><button class="btn" style="width:auto" onclick="closeModal('m-case')">Cancel</button><button class="btn primary" style="width:auto" onclick="createCase()">Create Case</button></div>
+  </div>
+</div>
+
+<!-- Database -->
+<div class="modal-bg" id="m-db">
+  <div class="modal">
+    <div class="modal-head"><span class="modal-title">Database Connection</span><button class="modal-close" onclick="closeModal('m-db')">✕</button></div>
+    <div class="modal-body">
+      <div class="field"><label>Neo4j AuraDB URI</label><input type="text" id="db-uri" placeholder="neo4j+s://xxx.databases.neo4j.io"></div>
+      <div class="field"><label>Username</label><input type="text" id="db-user" value="neo4j"></div>
+      <div class="field"><label>Password</label><input type="password" id="db-pass" placeholder="AuraDB password"></div>
+      <div id="db-alert" class="alert"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn danger" style="width:auto" onclick="showResetConfirm()">🗑 Reset All Data</button>
+      <button class="btn" style="width:auto" onclick="closeModal('m-db')">Cancel</button>
+      <button class="btn primary" style="width:auto" onclick="connectDB()">Connect</button>
+    </div>
+  </div>
+</div>
+
+<!-- Export -->
+<div class="modal-bg" id="m-export">
+  <div class="modal">
+    <div class="modal-head"><span class="modal-title">Export Investigation</span><button class="modal-close" onclick="closeModal('m-export')">✕</button></div>
+    <div class="modal-body">
+      <div class="export-option" onclick="exportJSON()">
+        <div class="export-icon" style="background:var(--blue-bg)">📋</div>
+        <div class="export-info"><div class="export-name">Full Report — JSON</div><div class="export-desc">All entities, relationships, tweets, topics, and metadata in structured JSON</div></div>
+      </div>
+      <div class="export-option" onclick="exportCSV()">
+        <div class="export-icon" style="background:var(--green-bg)">📊</div>
+        <div class="export-info"><div class="export-name">Data Table — CSV</div><div class="export-desc">Spreadsheet-ready: actor, tweet ID, content, topics per row</div></div>
+      </div>
+      <div class="export-option" onclick="exportMarkdown()">
+        <div class="export-icon" style="background:var(--purple-bg)">📄</div>
+        <div class="export-info"><div class="export-name">Investigation Report — Markdown</div><div class="export-desc">Human-readable report with subject overview, findings, and all tweets</div></div>
+      </div>
+      <div class="export-option" onclick="gExportPNG();closeModal('m-export')">
+        <div class="export-icon" style="background:var(--amber-bg)">🗺</div>
+        <div class="export-info"><div class="export-name">Graph Image — PNG</div><div class="export-desc">Current graph view exported as high-resolution PNG</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm reset -->
+<div class="confirm-overlay" id="m-confirm">
+  <div class="confirm-box">
+    <div class="confirm-title">⚠️ Delete All Data</div>
+    <div class="confirm-msg">This will permanently delete ALL nodes and relationships from Neo4j AuraDB. Your investigation data cannot be recovered. Are you absolutely sure?</div>
+    <div class="confirm-btns">
+      <button class="btn danger" onclick="doReset()">Yes, delete everything</button>
+      <button class="btn" onclick="closeModal('m-confirm')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════
      JAVASCRIPT
-══════════════════════════════════════════════════════════ -->
+════════════════════════════════════════ -->
 <script>
 'use strict';
 
+// ── State ────────────────────────────────────────────────────
 let driver = null, network = null, physicsOn = false;
 let allRows = [], ingestRecs = [];
+let subjects = JSON.parse(localStorage.getItem('fx_subjects') || '[]');
+let cases    = JSON.parse(localStorage.getItem('fx_cases')    || '[]');
+let activeSubject = null;
+let notes = {};
 
-/* ── Toast ─────────────────────────────────────────────────── */
+// ── Toast ────────────────────────────────────────────────────
 function toast(msg, type='info', ms=3200) {
   const el = document.createElement('div');
-  el.className = `toast toast-${type}`;
+  el.className = 'toast t' + type;
   el.textContent = msg;
   document.getElementById('toasts').appendChild(el);
   setTimeout(() => el.remove(), ms);
 }
 
-/* ── Tab switching ─────────────────────────────────────────── */
-function setMainTab(tab, el) {
-  document.querySelectorAll('#topbar .tb-tab').forEach(t => t.classList.remove('active'));
-  el.classList.add('active');
-  const gw = document.getElementById('graph-wrap');
-  const gt = document.getElementById('graph-toolbar');
-  const tv = document.getElementById('table-view');
-  if (tab === 'graph') {
-    gw.style.display = 'block';
-    gt.style.display = 'flex';
-    tv.style.display = 'none';
-  } else {
-    gw.style.display = 'none';
-    gt.style.display = 'none';
-    tv.style.display = 'block';
-    renderTable();
-  }
-}
+// ── Modal ────────────────────────────────────────────────────
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id){ document.getElementById(id).classList.remove('open'); }
 
-function setLeftTab(tab, el) {
-  document.querySelectorAll('.lt-tab').forEach(t => t.classList.remove('active'));
+// ── Tab switching ────────────────────────────────────────────
+function setPtab(tab, el) {
+  document.querySelectorAll('.ptab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
-  document.querySelectorAll('.left-pane').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.pane').forEach(p => p.classList.remove('active'));
   document.getElementById('pane-' + tab).classList.add('active');
 }
 
-/* ── Neo4j Connect ─────────────────────────────────────────── */
+function switchView(v) {
+  const gw = document.getElementById('gwrap');
+  const tv = document.getElementById('tbl-view');
+  const vg = document.getElementById('view-graph');
+  const vt = document.getElementById('view-table');
+  if (v === 'table') {
+    gw.style.display = 'none'; tv.style.display = 'block';
+    vg.style.display = 'flex'; vt.style.display = 'none';
+    renderTable();
+  } else {
+    gw.style.display = 'block'; tv.style.display = 'none';
+    vg.style.display = 'none'; vt.style.display = 'flex';
+  }
+}
+
+// ── Cases ────────────────────────────────────────────────────
+function openNewCase() { openModal('m-case'); }
+function createCase() {
+  const name = document.getElementById('case-name').value.trim();
+  if (!name) { toast('Enter a case name', 'err'); return; }
+  const c = { id: Date.now(), name, desc: document.getElementById('case-desc').value, classif: document.getElementById('case-class').value, created: new Date().toISOString(), status: 'open' };
+  cases.push(c);
+  localStorage.setItem('fx_cases', JSON.stringify(cases));
+  renderCases();
+  closeModal('m-case');
+  document.getElementById('case-name').value = '';
+  document.getElementById('case-desc').value = '';
+  toast(`Case "${name}" created`, 'ok');
+}
+function renderCases() {
+  const strip = document.getElementById('case-strip');
+  strip.innerHTML = '';
+  cases.slice(-4).forEach(c => {
+    const el = document.createElement('div');
+    el.className = 'case-pill';
+    el.innerHTML = `<span class="case-dot ${c.status}"></span>${c.name}`;
+    el.title = c.classif;
+    strip.appendChild(el);
+  });
+}
+
+// ── Subjects ─────────────────────────────────────────────────
+function openSubjectModal() { openModal('m-subject'); }
+function addSubject() {
+  const user = document.getElementById('subj-user').value.trim().replace('@','');
+  if (!user) { toast('Enter a username', 'err'); return; }
+  if (subjects.find(s => s.username === user)) { toast('Subject already added', 'err'); return; }
+  const s = { id: Date.now(), username: user, displayName: document.getElementById('subj-name').value.trim() || user, caseRef: document.getElementById('subj-case').value.trim(), notes: document.getElementById('subj-notes').value.trim(), added: new Date().toISOString() };
+  subjects.push(s);
+  localStorage.setItem('fx_subjects', JSON.stringify(subjects));
+  renderSubjects();
+  closeModal('m-subject');
+  document.getElementById('subj-user').value = '';
+  document.getElementById('subj-name').value = '';
+  document.getElementById('subj-case').value = '';
+  document.getElementById('subj-notes').value = '';
+  toast(`Subject @${user} added`, 'ok');
+}
+function renderSubjects() {
+  const list = document.getElementById('subject-list');
+  const none = document.getElementById('no-subjects');
+  list.innerHTML = '';
+  if (!subjects.length) { none.style.display = 'block'; return; }
+  none.style.display = 'none';
+  subjects.forEach(s => {
+    const el = document.createElement('div');
+    el.className = 'subject-card' + (activeSubject && activeSubject.id === s.id ? ' active' : '');
+    const initials = (s.displayName||s.username).slice(0,2).toUpperCase();
+    el.innerHTML = `
+      <div class="subj-avatar">${initials}</div>
+      <div class="subj-info">
+        <div class="subj-name">@${s.username}</div>
+        <div class="subj-meta">${s.displayName !== s.username ? s.displayName + ' · ' : ''}${s.caseRef||'No case assigned'}</div>
+      </div>
+      <div class="subj-actions">
+        <button class="icon-btn" title="Investigate" onclick="focusSubject(${s.id})">🔍</button>
+        <button class="icon-btn danger" title="Delete subject" onclick="deleteSubject(${s.id},event)">✕</button>
+      </div>`;
+    el.addEventListener('click', () => focusSubject(s.id));
+    list.appendChild(el);
+  });
+}
+function focusSubject(id) {
+  activeSubject = subjects.find(s => s.id === id);
+  if (!activeSubject) return;
+  renderSubjects();
+  document.getElementById('fa').value = activeSubject.username;
+  loadGraph();
+  toast(`Investigating @${activeSubject.username}`, 'info');
+  updateSubjectStats(activeSubject.username);
+}
+function updateSubjectStats(username) {
+  const rows = allRows.filter(r => r.screen_name === username);
+  const tags = new Set(rows.flatMap(r => r.hashtags));
+  const coActors = new Set(allRows.filter(r => r.screen_name !== username && r.hashtags.some(t => [...tags].includes(t))).map(r => r.screen_name));
+  const rel = rows.length + rows.reduce((a,r)=>a+r.hashtags.length,0);
+  document.getElementById('ss-tweets').textContent  = rows.length;
+  document.getElementById('ss-topics').textContent  = tags.size;
+  document.getElementById('ss-coactors').textContent= coActors.size;
+  document.getElementById('ss-relations').textContent= rel;
+  document.getElementById('subject-stats-sec').style.display = rows.length ? 'block' : 'none';
+}
+function deleteSubject(id, e) {
+  e.stopPropagation();
+  const s = subjects.find(s => s.id === id);
+  if (!s) return;
+  if (!confirm(`Remove @${s.username} from subjects? This does NOT delete their data from Neo4j.`)) return;
+  subjects = subjects.filter(s => s.id !== id);
+  localStorage.setItem('fx_subjects', JSON.stringify(subjects));
+  if (activeSubject && activeSubject.id === id) { activeSubject = null; document.getElementById('fa').value = ''; }
+  renderSubjects();
+  toast(`@${s.username} removed from subjects`, 'ok');
+}
+
+// ── DB connect ────────────────────────────────────────────────
+function openDB() { openModal('m-db'); }
 async function connectDB() {
-  const uri  = document.getElementById('cfg-uri').value.trim();
-  const user = document.getElementById('cfg-user').value.trim();
-  const pass = document.getElementById('cfg-pass').value.trim();
-  if (!uri || !pass) { toast('Enter URI and password', 'err'); return; }
+  const uri  = document.getElementById('db-uri').value.trim();
+  const user = document.getElementById('db-user').value.trim();
+  const pass = document.getElementById('db-pass').value.trim();
+  if (!uri||!pass) { showAlert('db-alert', 'Enter URI and password', 'err'); return; }
   localStorage.setItem('fx_uri', uri); localStorage.setItem('fx_user', user);
-  const alertEl = document.getElementById('conn-alert');
   try {
     if (driver) await driver.close();
     driver = neo4j.driver(uri, neo4j.auth.basic(user, pass));
     const s = driver.session(); await s.run('RETURN 1'); await s.close();
-    setBadge(true);
-    alertEl.innerHTML = '<div class="alert alert-ok">Connected successfully</div>';
+    setConn(true);
+    showAlert('db-alert', '✓ Connected to AuraDB', 'ok');
     toast('Connected to AuraDB', 'ok');
+    setTimeout(() => closeModal('m-db'), 1200);
     await loadGraph();
   } catch(e) {
-    setBadge(false);
-    alertEl.innerHTML = `<div class="alert alert-err">${e.message}</div>`;
-    toast('Connection failed', 'err');
+    setConn(false);
+    showAlert('db-alert', '✗ ' + e.message, 'err');
   }
 }
-
-function setBadge(ok) {
-  const b = document.getElementById('conn-badge');
-  b.className = 'conn-pill ' + (ok ? 'conn-ok' : 'conn-err');
-  document.getElementById('conn-text').textContent = ok ? 'AuraDB Online' : 'Disconnected';
+function setConn(ok) {
+  document.getElementById('conn-dot').className = 'status-dot ' + (ok?'ok':'err');
+  document.getElementById('conn-text').textContent = ok ? 'AuraDB Connected' : 'Disconnected';
+}
+function showAlert(id, msg, type) {
+  const el = document.getElementById(id);
+  el.className = 'alert alert-' + type + ' visible';
+  el.textContent = msg;
 }
 
 async function query(cypher, params={}) {
-  if (!driver) throw new Error('Not connected to Neo4j');
+  if (!driver) throw new Error('Not connected');
   const s = driver.session();
   try { const r = await s.run(cypher, params); return r.records; }
   finally { await s.close(); }
 }
 
-/* ── Load + Build Graph ────────────────────────────────────── */
+// ── Load Graph ────────────────────────────────────────────────
 async function loadGraph() {
-  if (!driver) { toast('Connect to AuraDB first', 'err'); return; }
-  const limit  = parseInt(document.getElementById('limit-r').value);
-  const filt   = document.getElementById('filter-actor').value.trim().toLowerCase().replace('@','');
-  const tags   = document.getElementById('show-tags').checked;
-  const layout = document.getElementById('layout-sel').value;
-
+  if (!driver) { toast('Connect to AuraDB first (Database button)', 'err'); return; }
+  const limit  = parseInt(document.getElementById('lr').value);
+  const filt   = document.getElementById('fa').value.trim().toLowerCase().replace('@','');
+  const showH  = document.getElementById('st').checked;
+  const layout = document.getElementById('ls').value;
   setLoading(true);
-  document.getElementById('graph-empty').style.display = 'none';
-
+  document.getElementById('gempty').style.display = 'none';
   try {
     const recs = await query(
       'MATCH (u:User)-[:AUTHORED]->(t:Tweet) OPTIONAL MATCH (t)-[:HAS_TAG]->(h:Hashtag) RETURN u.screen_name AS sn, t.tweet_id AS tid, t.snippet AS snip, t.content AS cnt, collect(h.name) AS hs LIMIT $limit',
       { limit: neo4j.int(limit) }
     );
-    allRows = recs.map(r => ({ screen_name: r.get('sn'), tweet_id: r.get('tid'), snippet: r.get('snip')||'', content: r.get('cnt')||'', hashtags: r.get('hs')||[] }));
+    allRows = recs.map(r => ({ screen_name:r.get('sn'), tweet_id:r.get('tid'), snippet:r.get('snip')||'', content:r.get('cnt')||'', hashtags:r.get('hs')||[] }));
     let rows = filt ? allRows.filter(r => r.screen_name.toLowerCase().includes(filt)) : allRows;
-    buildVis(rows, tags, layout);
-    updateMetrics(rows, tags);
+    buildVis(rows, showH, layout);
+    updateMetrics(rows, showH);
+    if (activeSubject) updateSubjectStats(activeSubject.username);
     toast(`Loaded ${rows.length} records`, 'ok');
   } catch(e) {
-    toast('Error: ' + e.message, 'err');
-    document.getElementById('graph-empty').style.display = 'flex';
+    toast('Query failed: ' + e.message, 'err');
+    document.getElementById('gempty').style.display = 'flex';
   } finally { setLoading(false); }
 }
 
-function buildVis(rows, showTags, layout) {
+// ── Build vis-network ─────────────────────────────────────────
+function buildVis(rows, showH, layout) {
   const nodes = new vis.DataSet(), edges = new vis.DataSet();
   const sN = new Set(), sE = new Set();
 
   for (const r of rows) {
-    const { screen_name: sn, tweet_id: tid, snippet, content, hashtags: hs } = r;
-
-    // Actor
-    const uid = 'u_' + sn;
+    const { screen_name:sn, tweet_id:tid, snippet, content, hashtags:hs } = r;
+    const uid = 'u_'+sn;
     if (!sN.has(uid)) {
       sN.add(uid);
-      nodes.add({ id: uid, label: '@' + sn, shape: 'dot', size: 18,
-        color: { background: '#e8f0fe', border: '#4285f4', highlight: { background: '#dce8fd', border: '#1967d2' }, hover: { background: '#dce8fd', border: '#1967d2' } },
-        font:  { color: '#1967d2', size: 12, face: 'Inter', bold: { color: '#1967d2' } },
-        title: tip('Actor', '@' + sn, ''), level: 0,
+      const isActive = activeSubject && sn === activeSubject.username;
+      nodes.add({ id:uid, label:'@'+sn, shape:'dot', size: isActive ? 24 : 18,
+        color:{ background: isActive?'#1d4ed8':'#eff6ff', border: isActive?'#1e40af':'#3b82f6',
+                highlight:{background:'#dbeafe',border:'#1d4ed8'}, hover:{background:'#dbeafe',border:'#1d4ed8'} },
+        font:{ color: isActive?'#1e40af':'#1d4ed8', size:12, face:'Geist,Inter,sans-serif', bold:isActive },
+        title:tt('Actor','@'+sn,''), level:0,
+        borderWidth: isActive ? 2 : 1,
       });
     }
-
-    // Tweet
-    const twid = 't_' + tid;
+    const twid = 't_'+tid;
     if (!sN.has(twid)) {
       sN.add(twid);
-      nodes.add({ id: twid, label: wrap(snippet.slice(0,80), 22), shape: 'box',
-        color: { background: '#fffbeb', border: '#d97706', highlight: { background: '#fef3c7', border: '#b45309' }, hover: { background: '#fef3c7', border: '#b45309' } },
-        font:  { color: '#92400e', size: 9, face: 'Inter' },
-        margin: { top: 5, right: 8, bottom: 5, left: 8 },
-        widthConstraint: { minimum: 80, maximum: 155 },
-        title: tip('Artifact', '@' + sn, content.slice(0, 300)), level: 1,
+      nodes.add({ id:twid, label:wl(snippet.slice(0,80),22), shape:'box',
+        color:{ background:'#fffbeb', border:'#f59e0b', highlight:{background:'#fef3c7',border:'#d97706'}, hover:{background:'#fef3c7',border:'#d97706'} },
+        font:{ color:'#92400e', size:9, face:'Geist,Inter,sans-serif' },
+        margin:{top:5,right:8,bottom:5,left:8},
+        widthConstraint:{minimum:80,maximum:150},
+        title:tt('Artifact','@'+sn,content.slice(0,300)), level:1,
       });
     }
-
-    const eid = uid + '>' + twid;
-    if (!sE.has(eid)) {
-      sE.add(eid);
-      edges.add({ id: eid, from: uid, to: twid,
-        color: { color: '#c8cdd6', highlight: '#4285f4', hover: '#4285f4' },
-        width: 1, arrows: { to: { enabled: true, scaleFactor: 0.5 } },
-        smooth: { type: 'continuous', roundness: 0.3 },
-      });
-    }
-
-    if (showTags) {
+    const eid = uid+'>'+twid;
+    if (!sE.has(eid)) { sE.add(eid); edges.add({ id:eid, from:uid, to:twid, color:{color:'#e4e4e7',highlight:'#3b82f6',hover:'#3b82f6'}, width:1, arrows:{to:{enabled:true,scaleFactor:.45}}, smooth:{type:'continuous',roundness:.3} }); }
+    if (showH) {
       for (const h of hs) {
-        const hid = 'h_' + h;
-        if (!sN.has(hid)) {
-          sN.add(hid);
-          nodes.add({ id: hid, label: '#' + h, shape: 'diamond', size: 11,
-            color: { background: '#dcfce7', border: '#16a34a', highlight: { background: '#bbf7d0', border: '#15803d' }, hover: { background: '#bbf7d0', border: '#15803d' } },
-            font:  { color: '#15803d', size: 9, face: 'Inter' },
-            title: tip('Topic', '#' + h, ''), level: 2,
-          });
-        }
-        const heid = twid + '>' + hid;
-        if (!sE.has(heid)) {
-          sE.add(heid);
-          edges.add({ id: heid, from: twid, to: hid,
-            color: { color: '#d4edda', highlight: '#16a34a', hover: '#16a34a' },
-            width: 1, dashes: [4, 3],
-            arrows: { to: { enabled: true, scaleFactor: 0.4 } },
-          });
-        }
+        const hid = 'h_'+h;
+        if (!sN.has(hid)) { sN.add(hid); nodes.add({ id:hid, label:'#'+h, shape:'diamond', size:11, color:{background:'#f0fdf4',border:'#22c55e',highlight:{background:'#dcfce7',border:'#16a34a'},hover:{background:'#dcfce7',border:'#16a34a'}}, font:{color:'#15803d',size:9,face:'Geist,Inter,sans-serif'}, title:tt('Topic','#'+h,''), level:2 }); }
+        const heid = twid+'>'+hid;
+        if (!sE.has(heid)) { sE.add(heid); edges.add({ id:heid, from:twid, to:hid, color:{color:'#d4d4d8',highlight:'#22c55e',hover:'#22c55e'}, width:1, dashes:[4,3], arrows:{to:{enabled:true,scaleFactor:.35}} }); }
       }
     }
   }
 
-  const physOpts = layout === 'hier' ? {
-    layout: { hierarchical: { enabled: true, direction: 'UD', sortMethod: 'directed', levelSeparation: 120, nodeSpacing: 130, treeSpacing: 150 } },
-    physics: { enabled: false },
+  const physOpts = layout==='hier' ? {
+    layout:{hierarchical:{enabled:true,direction:'UD',sortMethod:'directed',levelSeparation:120,nodeSpacing:130,treeSpacing:150}},
+    physics:{enabled:false},
   } : {
-    layout: { hierarchical: { enabled: false } },
-    physics: { enabled: true, stabilization: { iterations: 250, fit: true },
-      barnesHut: { gravitationalConstant: -11000, centralGravity: 0.1, springLength: 220, springConstant: 0.025, damping: 0.35, avoidOverlap: 1 }, minVelocity: 0.5 },
+    layout:{hierarchical:{enabled:false}},
+    physics:{enabled:true,stabilization:{iterations:250,fit:true},barnesHut:{gravitationalConstant:-11000,centralGravity:.1,springLength:220,springConstant:.025,damping:.35,avoidOverlap:1},minVelocity:.5},
   };
 
   const opts = { ...physOpts,
-    nodes: { borderWidth: 1, borderWidthSelected: 2, shadow: { enabled: false } },
-    edges: { color: { inherit: false }, selectionWidth: 2, hoverWidth: 1.5 },
-    interaction: { hover: true, tooltipDelay: 50, navigationButtons: false, keyboard: false, hideEdgesOnDrag: true },
-    background: { color: '#f4f5f7' },
+    nodes:{borderWidth:1,borderWidthSelected:2,shadow:false},
+    edges:{color:{inherit:false},selectionWidth:2,hoverWidth:1.5},
+    interaction:{hover:true,tooltipDelay:50,navigationButtons:false,keyboard:false,hideEdgesOnDrag:true},
+    background:{color:'#fafafa'},
   };
 
   if (network) network.destroy();
-  network = new vis.Network(document.getElementById('graph-canvas'), { nodes, edges }, opts);
-
-  if (layout === 'force') {
-    network.once('stabilized', () => {
-      network.setOptions({ physics: { enabled: false } });
-      physicsOn = false;
-      updatePhysicsBtn();
-      toast('Graph stabilized', 'info', 1500);
-    });
+  network = new vis.Network(document.getElementById('gc'), {nodes,edges}, opts);
+  if (layout==='force') {
+    network.once('stabilized', () => { network.setOptions({physics:{enabled:false}}); physicsOn=false; updPhysBtn(); toast('Graph stabilized','info',1500); });
   }
-
   network.on('click', p => { if (p.nodes.length) showInspector(p.nodes[0]); });
-
-  document.getElementById('gb-nodes').textContent  = sN.size;
-  document.getElementById('gb-edges').textContent  = sE.size;
-  document.getElementById('gb-layout').textContent = layout === 'hier' ? 'Hierarchical' : 'Force';
+  document.getElementById('gb-n').textContent = sN.size;
+  document.getElementById('gb-e').textContent = sE.size;
 }
 
-function tip(type, name, body) {
-  const colors = { Actor:'#1967d2', Artifact:'#b45309', Topic:'#15803d' };
-  const bgs    = { Actor:'#e8f0fe',  Artifact:'#fef3c7',  Topic:'#dcfce7' };
-  return `<div style="font-family:Inter,sans-serif;background:#fff;border:1px solid #dde1e7;border-radius:6px;padding:10px 13px;max-width:260px;box-shadow:0 2px 8px rgba(0,0,0,.1);font-size:12px">
-    <div style="display:inline-block;background:${bgs[type]};color:${colors[type]};font-size:9px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;padding:2px 7px;border-radius:3px;margin-bottom:7px">${type}</div>
-    <div style="font-weight:600;color:#1a2332;margin-bottom:${body?'7px':'0'}">${name}</div>
-    ${body ? `<div style="color:#4a5568;line-height:1.6">${body}</div>` : ''}
+function tt(type, name, body) {
+  const c = {Actor:'#1d4ed8',Artifact:'#b45309',Topic:'#15803d'};
+  const b = {Actor:'#eff6ff',Artifact:'#fffbeb',Topic:'#f0fdf4'};
+  return `<div style="font-family:Inter,sans-serif;background:#fff;border:1px solid #e4e4e7;border-radius:8px;padding:10px 13px;max-width:260px;box-shadow:0 4px 12px rgba(0,0,0,.08);font-size:12px">
+    <div style="background:${b[type]};color:${c[type]};font-size:8px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;padding:2px 7px;border-radius:3px;display:inline-block;margin-bottom:7px">${type}</div>
+    <div style="font-weight:600;color:#09090b;margin-bottom:${body?'7px':'0'}">${name}</div>
+    ${body?`<div style="color:#52525b;line-height:1.6">${body}</div>`:''}
   </div>`;
 }
+function wl(s,w){const ws=s.split(' ');const ls=[];let c='';for(const w2 of ws){if(c.length+w2.length>w&&c){ls.push(c);c=w2;}else c=c?c+' '+w2:w2;}if(c)ls.push(c);return ls.slice(0,3).join('\n');}
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
-function wrap(s, w) {
-  const words = s.split(' '); const lines = []; let cur = '';
-  for (const w2 of words) {
-    if (cur.length + w2.length > w && cur) { lines.push(cur); cur = w2; }
-    else cur = cur ? cur+' '+w2 : w2;
-  }
-  if (cur) lines.push(cur);
-  return lines.slice(0,3).join('\n');
-}
-
-/* ── Inspector ─────────────────────────────────────────────── */
+// ── Inspector ─────────────────────────────────────────────────
 function showInspector(nid) {
-  document.getElementById('insp-empty').style.display = 'none';
-  const el = document.getElementById('insp-content');
-  el.style.display = 'block'; el.innerHTML = '';
+  document.getElementById('ie').style.display = 'none';
+  const ic = document.getElementById('ic');
+  ic.style.display = 'block'; ic.innerHTML = '';
 
   if (nid.startsWith('u_')) {
     const sn = nid.slice(2);
-    const actRows = allRows.filter(r => r.screen_name === sn);
-    const actTags = [...new Set(actRows.flatMap(r => r.hashtags))].sort();
-    const coActors = [...new Set(
-      allRows.filter(r => r.screen_name !== sn && r.hashtags.some(t => actTags.includes(t))).map(r => r.screen_name)
-    )].slice(0,10);
-
-    el.innerHTML = `
-      <div class="ent-header">
-        <div class="ent-type-row"><span class="ent-badge b-actor">Actor</span></div>
-        <div class="ent-name">@${sn}</div>
-        <div class="ent-meta">${actRows.length} artifacts · ${actTags.length} topics</div>
+    const ar = allRows.filter(r => r.screen_name===sn);
+    const tags = [...new Set(ar.flatMap(r=>r.hashtags))].sort();
+    const coActors = [...new Set(allRows.filter(r=>r.screen_name!==sn&&r.hashtags.some(t=>tags.includes(t))).map(r=>r.screen_name))].slice(0,12);
+    const subj = subjects.find(s=>s.username===sn);
+    ic.innerHTML = `
+      <div class="ent-head">
+        <div class="ent-avatar actor">${sn.slice(0,2).toUpperCase()}</div>
+        <div class="ent-head-info">
+          <span class="ent-badge b-actor">Actor</span>
+          <div class="ent-name">@${esc(sn)}</div>
+          <div class="ent-meta">${ar.length} tweets · ${tags.length} topics</div>
+        </div>
       </div>
-      <div class="prop-list">
-        <div class="prop-row"><div class="prop-key">Screen Name</div><div class="prop-val mono">@${sn}</div></div>
-        <div class="prop-row"><div class="prop-key">Artifacts in Dataset</div><div class="prop-val">${actRows.length}</div></div>
-        <div class="prop-row">
-          <div class="prop-key">Topics Used</div>
-          <div class="prop-val">${actTags.slice(0,12).map(t=>`<span class="chip chip-green">#${t}</span>`).join(' ')||'None'}</div>
-        </div>
-        <div class="prop-row">
-          <div class="prop-key">Co-occurring Actors</div>
-          <div class="prop-val">${coActors.map(a=>`<span class="chip chip-blue">@${a}</span>`).join(' ')||'None'}</div>
-        </div>
+      <div class="prop-section">
+        <div class="prop-section-title">Identity</div>
+        <div class="prop-row"><div class="pk">Screen Name</div><div class="pv mono">@${sn}</div></div>
+        ${subj?`<div class="prop-row"><div class="pk">Display Name</div><div class="pv">${esc(subj.displayName)}</div></div><div class="prop-row"><div class="pk">Case</div><div class="pv">${esc(subj.caseRef||'—')}</div></div>`:''}
+        <div class="prop-row"><div class="pk">Artifacts in Dataset</div><div class="pv mono">${ar.length}</div></div>
+      </div>
+      <div class="prop-section">
+        <div class="prop-section-title">Topics Used</div>
+        <div style="padding:4px 0;display:flex;flex-wrap:wrap;gap:4px">${tags.slice(0,14).map(t=>`<span class="chip chip-green">#${t}</span>`).join('')||'<span style="font-size:12px;color:var(--tx3)">None</span>'}</div>
+      </div>
+      <div class="prop-section">
+        <div class="prop-section-title">Co-occurring Actors</div>
+        <div style="padding:4px 0;display:flex;flex-wrap:wrap;gap:4px">${coActors.map(a=>`<span class="chip chip-blue">@${a}</span>`).join('')||'<span style="font-size:12px;color:var(--tx3)">None detected</span>'}</div>
       </div>
     `;
-    actRows.slice(0,3).forEach(r => {
-      el.innerHTML += `
-        <div class="tweet-card">
-          <div class="tweet-card-head">
-            <span class="tw-author">@${sn}</span>
-            <span class="tw-id">${r.tweet_id.slice(-8)}</span>
-          </div>
-          <div class="tweet-card-body">${esc(r.content||'—').slice(0,340)}</div>
-          ${r.hashtags.length ? `<div class="tweet-card-tags">${r.hashtags.map(t=>`<span class="chip chip-green">#${t}</span>`).join('')}</div>` : ''}
-        </div>`;
+    ar.slice(0,3).forEach(r => {
+      ic.innerHTML += `<div class="tw-card"><div class="tw-card-head"><span class="tw-author">@${sn}</span><span class="tw-id">${r.tweet_id.slice(-8)}</span></div><div class="tw-body">${esc(r.content||'—').slice(0,300)}</div>${r.hashtags.length?`<div class="tw-tags">${r.hashtags.map(t=>`<span class="chip chip-green">#${t}</span>`).join('')}</div>`:''}</div>`;
     });
 
   } else if (nid.startsWith('t_')) {
     const tid = nid.slice(2);
-    const row = allRows.find(r => r.tweet_id === tid);
+    const row = allRows.find(r=>r.tweet_id===tid);
     if (!row) return;
-    el.innerHTML = `
-      <div class="ent-header">
-        <div class="ent-type-row"><span class="ent-badge b-artifact">Artifact</span></div>
-        <div class="ent-name" style="font-size:14px">${esc(row.snippet||'Tweet')}</div>
-        <div class="ent-meta">by @${row.screen_name}</div>
-      </div>
-      <div class="prop-list">
-        <div class="prop-row"><div class="prop-key">Tweet ID</div><div class="prop-val mono" style="font-size:10px;word-break:break-all">${tid}</div></div>
-        <div class="prop-row"><div class="prop-key">Author</div><div class="prop-val"><span class="chip chip-blue">@${row.screen_name}</span></div></div>
-        <div class="prop-row">
-          <div class="prop-key">Topics</div>
-          <div class="prop-val">${row.hashtags.map(t=>`<span class="chip chip-green">#${t}</span>`).join(' ')||'None'}</div>
+    ic.innerHTML = `
+      <div class="ent-head">
+        <div class="ent-avatar artifact" style="font-size:20px">📄</div>
+        <div class="ent-head-info">
+          <span class="ent-badge b-artifact">Artifact</span>
+          <div class="ent-name" style="font-size:14px">${esc(row.snippet.slice(0,50))}…</div>
+          <div class="ent-meta">by @${row.screen_name}</div>
         </div>
       </div>
-      <div class="tweet-card">
-        <div class="tweet-card-head"><span class="tw-author">Full content</span><span class="tw-id">@${row.screen_name}</span></div>
-        <div class="tweet-card-body">${esc(row.content||'—')}</div>
-      </div>
-    `;
+      <div class="prop-section">
+        <div class="prop-row"><div class="pk">Tweet ID</div><div class="pv mono" style="word-break:break-all;font-size:10px">${tid}</div></div>
+        <div class="prop-row"><div class="pk">Author</div><div class="pv"><span class="chip chip-blue">@${row.screen_name}</span></div></div>
+        <div class="prop-row"><div class="pk">Topics</div><div class="pv">${row.hashtags.map(t=>`<span class="chip chip-green">#${t}</span>`).join(' ')||'None'}</div></div>
+      </div>`;
+    ic.innerHTML += `<div class="tw-card"><div class="tw-card-head"><span class="tw-author">Full Content</span><span class="tw-id">@${row.screen_name}</span></div><div class="tw-body">${esc(row.content||'—')}</div></div>`;
 
   } else if (nid.startsWith('h_')) {
     const tag = nid.slice(2);
-    const tagRows = allRows.filter(r => r.hashtags.includes(tag));
-    const authors = [...new Set(tagRows.map(r => r.screen_name))].sort();
-    const coTags  = [...new Set(tagRows.flatMap(r=>r.hashtags).filter(t=>t!==tag))].slice(0,14);
-    el.innerHTML = `
-      <div class="ent-header">
-        <div class="ent-type-row"><span class="ent-badge b-topic">Topic</span></div>
-        <div class="ent-name">#${tag}</div>
-        <div class="ent-meta">${tagRows.length} artifacts · ${authors.length} authors</div>
-      </div>
-      <div class="prop-list">
-        <div class="prop-row"><div class="prop-key">Hashtag</div><div class="prop-val mono">#${tag}</div></div>
-        <div class="prop-row"><div class="prop-key">Total Usage</div><div class="prop-val">${tagRows.length} artifacts</div></div>
-        <div class="prop-row">
-          <div class="prop-key">Authors</div>
-          <div class="prop-val">${authors.slice(0,10).map(a=>`<span class="chip chip-blue">@${a}</span>`).join(' ')}</div>
-        </div>
-        <div class="prop-row">
-          <div class="prop-key">Co-occurring Topics</div>
-          <div class="prop-val">${coTags.map(t=>`<span class="chip chip-green">#${t}</span>`).join(' ')||'None'}</div>
+    const tr = allRows.filter(r=>r.hashtags.includes(tag));
+    const authors = [...new Set(tr.map(r=>r.screen_name))].sort();
+    const coTags  = [...new Set(tr.flatMap(r=>r.hashtags).filter(t=>t!==tag))].slice(0,16);
+    ic.innerHTML = `
+      <div class="ent-head">
+        <div class="ent-avatar topic" style="font-size:20px">#</div>
+        <div class="ent-head-info">
+          <span class="ent-badge b-topic">Topic</span>
+          <div class="ent-name">#${esc(tag)}</div>
+          <div class="ent-meta">${tr.length} uses · ${authors.length} authors</div>
         </div>
       </div>
-    `;
+      <div class="prop-section">
+        <div class="prop-row"><div class="pk">Usage Count</div><div class="pv mono">${tr.length}</div></div>
+        <div class="prop-row"><div class="pk">Unique Authors</div><div class="pv mono">${authors.length}</div></div>
+        <div class="prop-row"><div class="pk">Authors</div><div class="pv">${authors.slice(0,10).map(a=>`<span class="chip chip-blue">@${a}</span>`).join(' ')}</div></div>
+        <div class="prop-row"><div class="pk">Co-occurring Topics</div><div class="pv">${coTags.map(t=>`<span class="chip chip-green">#${t}</span>`).join(' ')||'None'}</div></div>
+      </div>`;
   }
 }
 
-function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-
-/* ── Metrics ───────────────────────────────────────────────── */
-function updateMetrics(rows, showTags) {
-  const actors = new Set(rows.map(r=>r.screen_name)).size;
-  const tweets = new Set(rows.map(r=>r.tweet_id)).size;
-  const tags   = showTags ? new Set(rows.flatMap(r=>r.hashtags)).size : 0;
-  const edges  = rows.length + (showTags ? rows.reduce((a,r)=>a+r.hashtags.length,0) : 0);
-  const nodes  = actors + tweets + tags;
-  const dens   = (edges / Math.max(nodes * Math.max(nodes-1,1),1)).toFixed(4);
-
-  document.getElementById('lc-actors').textContent   = actors;
-  document.getElementById('lc-tweets').textContent   = tweets;
-  document.getElementById('lc-tags').textContent     = tags;
-  ['m-actors','m-artifacts','m-topics','m-edges'].forEach((id,i)=>{
-    document.getElementById(id).textContent = [actors,tweets,tags,edges][i];
-  });
-  document.getElementById('m-density').textContent = dens;
+// ── Metrics ───────────────────────────────────────────────────
+function updateMetrics(rows, showH) {
+  const a = new Set(rows.map(r=>r.screen_name)).size;
+  const t = new Set(rows.map(r=>r.tweet_id)).size;
+  const h = showH ? new Set(rows.flatMap(r=>r.hashtags)).size : 0;
+  const e = rows.length + (showH?rows.reduce((x,r)=>x+r.hashtags.length,0):0);
+  const n = a+t+h;
+  const d = (e/Math.max(n*Math.max(n-1,1),1)).toFixed(4);
+  document.getElementById('lc-a').textContent=a;
+  document.getElementById('lc-t').textContent=t;
+  document.getElementById('lc-h').textContent=h;
+  document.getElementById('m-a').textContent=a;
+  document.getElementById('m-t').textContent=t;
+  document.getElementById('m-h').textContent=h;
+  document.getElementById('m-e').textContent=e;
+  document.getElementById('m-d').textContent=d;
 }
 
-/* ── File Upload ───────────────────────────────────────────── */
-document.getElementById('file-input').addEventListener('change', function(e) {
-  const file = e.target.files[0]; if (!file) return;
-  document.getElementById('upload-txt').innerHTML = `<strong>${file.name}</strong><br>Parsing…`;
-  const reader = new FileReader();
-  reader.onload = ev => parseFile(ev.target.result);
-  reader.readAsText(file);
+// ── File upload ───────────────────────────────────────────────
+document.getElementById('fi').addEventListener('change', function(e) {
+  const f = e.target.files[0]; if (!f) return;
+  document.getElementById('ut').innerHTML = `<strong>${f.name}</strong><br>Parsing…`;
+  new FileReader().onload = ev => parseNDJSON(ev.target.result), document.getElementById('fi').nextElementSibling;
+  const fr = new FileReader(); fr.onload = ev => parseNDJSON(ev.target.result); fr.readAsText(f);
 });
 
-function parseFile(text) {
+function parseNDJSON(text) {
   ingestRecs = [];
-  const users=new Set(), tweets=new Set(), tags=new Set();
+  const U=new Set(),T=new Set(),H=new Set();
   for (const line of text.split('\n')) {
-    const t = line.trim(); if (!t) continue;
-    let obj; try { obj = JSON.parse(t); } catch { continue; }
-    const d = obj.data || obj;
-    const tid = (d.legacy&&d.legacy.id_str) || d.id_str || '';
-    const cnt = (d.note_tweet&&d.note_tweet.note_tweet_results&&d.note_tweet.note_tweet_results.result&&d.note_tweet.note_tweet_results.result.text)
-               ||(d.legacy&&d.legacy.full_text)||'';
-    const sn  = (d.core&&d.core.user_results&&d.core.user_results.result&&d.core.user_results.result.core&&d.core.user_results.result.core.screen_name)
-               ||(d.core&&d.core.user_results&&d.core.user_results.result&&d.core.user_results.result.legacy&&d.core.user_results.result.legacy.screen_name)||'';
-    if (!tid||!sn) continue;
-    const lh = ((d.legacy&&d.legacy.entities&&d.legacy.entities.hashtags)||[]).map(h=>(h.text||h.tag||'').toLowerCase()).filter(Boolean);
-    const nh = ((d.note_tweet&&d.note_tweet.note_tweet_results&&d.note_tweet.note_tweet_results.result&&d.note_tweet.note_tweet_results.result.entity_set&&d.note_tweet.note_tweet_results.result.entity_set.hashtags)||[]).map(h=>(h.text||h.tag||'').toLowerCase()).filter(Boolean);
-    const hs = [...new Set([...lh,...nh])];
-    ingestRecs.push({ screen_name:sn, tweet_id:tid, content:cnt, hashtags:hs, snippet:cnt.slice(0,90)+(cnt.length>90?'…':'') });
-    users.add(sn); tweets.add(tid); hs.forEach(h=>tags.add(h));
+    const t=line.trim(); if(!t) continue;
+    let o; try{o=JSON.parse(t)}catch{continue}
+    const d=o.data||o;
+    const tid=(d.legacy&&d.legacy.id_str)||d.id_str||'';
+    const cnt=(d.note_tweet&&d.note_tweet.note_tweet_results&&d.note_tweet.note_tweet_results.result&&d.note_tweet.note_tweet_results.result.text)||(d.legacy&&d.legacy.full_text)||'';
+    const sn=(d.core&&d.core.user_results&&d.core.user_results.result&&d.core.user_results.result.core&&d.core.user_results.result.core.screen_name)||(d.core&&d.core.user_results&&d.core.user_results.result&&d.core.user_results.result.legacy&&d.core.user_results.result.legacy.screen_name)||'';
+    if(!tid||!sn) continue;
+    const lh=((d.legacy&&d.legacy.entities&&d.legacy.entities.hashtags)||[]).map(h=>(h.text||h.tag||'').toLowerCase()).filter(Boolean);
+    const nh=((d.note_tweet&&d.note_tweet.note_tweet_results&&d.note_tweet.note_tweet_results.result&&d.note_tweet.note_tweet_results.result.entity_set&&d.note_tweet.note_tweet_results.result.entity_set.hashtags)||[]).map(h=>(h.text||h.tag||'').toLowerCase()).filter(Boolean);
+    const hs=[...new Set([...lh,...nh])];
+    ingestRecs.push({screen_name:sn,tweet_id:tid,content:cnt,hashtags:hs,snippet:cnt.slice(0,90)+(cnt.length>90?'…':'')});
+    U.add(sn);T.add(tid);hs.forEach(h=>H.add(h));
   }
-  document.getElementById('is-parsed').textContent = ingestRecs.length;
-  document.getElementById('is-actors').textContent = users.size;
-  document.getElementById('is-tweets').textContent = tweets.size;
-  document.getElementById('is-tags').textContent   = tags.size;
-  document.getElementById('ingest-stats').style.display = 'block';
-  document.getElementById('upload-txt').innerHTML = `<strong>✓ ${ingestRecs.length} records parsed</strong>`;
-  toast(`Parsed ${ingestRecs.length} records from file`, 'ok');
+  document.getElementById('is-p').textContent=ingestRecs.length;
+  document.getElementById('is-a').textContent=U.size;
+  document.getElementById('is-t').textContent=T.size;
+  document.getElementById('is-h').textContent=H.size;
+  document.getElementById('ingest-stats').style.display='block';
+  document.getElementById('ut').innerHTML=`<strong>✓ ${ingestRecs.length} records parsed</strong>`;
+  toast(`Parsed ${ingestRecs.length} records`,'ok');
 }
 
-/* ── Push ──────────────────────────────────────────────────── */
-async function pushToNeo4j() {
-  if (!driver) { toast('Connect to AuraDB first', 'err'); return; }
-  if (!ingestRecs.length) { toast('No records to push', 'err'); return; }
+async function pushData() {
+  if (!driver){toast('Connect to AuraDB first','err');return;}
+  if (!ingestRecs.length){toast('No data to push','err');return;}
   setLoading(true);
+  const ia=document.getElementById('ia'); ia.className='alert'; ia.textContent='';
   const BATCH=100; let pushed=0;
   try {
-    for (let i=0; i<ingestRecs.length; i+=BATCH) {
-      await query(`UNWIND $rows AS row
-        MERGE (u:User {screen_name:row.screen_name})
-        MERGE (t:Tweet {tweet_id:row.tweet_id}) ON CREATE SET t.content=row.content,t.snippet=row.snippet
-        MERGE (u)-[:AUTHORED]->(t)
-        WITH t,row UNWIND CASE WHEN size(row.hashtags)=0 THEN [null] ELSE row.hashtags END AS tag
-        CALL { WITH t,tag WITH t,tag WHERE tag IS NOT NULL MERGE (h:Hashtag {name:tag}) MERGE (t)-[:HAS_TAG]->(h) }`,
-        { rows: ingestRecs.slice(i,i+BATCH) });
-      pushed += Math.min(BATCH, ingestRecs.length-i);
+    for(let i=0;i<ingestRecs.length;i+=BATCH){
+      await query(`UNWIND $rows AS row MERGE (u:User {screen_name:row.screen_name}) MERGE (t:Tweet {tweet_id:row.tweet_id}) ON CREATE SET t.content=row.content,t.snippet=row.snippet MERGE (u)-[:AUTHORED]->(t) WITH t,row UNWIND CASE WHEN size(row.hashtags)=0 THEN [null] ELSE row.hashtags END AS tag CALL{WITH t,tag WITH t,tag WHERE tag IS NOT NULL MERGE (h:Hashtag {name:tag}) MERGE (t)-[:HAS_TAG]->(h)}`,
+        {rows:ingestRecs.slice(i,i+BATCH)});
+      pushed+=Math.min(BATCH,ingestRecs.length-i);
     }
-    document.getElementById('ingest-alert').innerHTML = `<div class="alert alert-ok">✓ ${pushed} artifacts written to Neo4j</div>`;
-    toast(`${pushed} artifacts ingested`, 'ok');
+    ia.className='alert alert-ok visible'; ia.textContent=`✓ ${pushed} artifacts written to Neo4j`;
+    toast(`${pushed} artifacts ingested`,'ok');
     await loadGraph();
   } catch(e) {
-    document.getElementById('ingest-alert').innerHTML = `<div class="alert alert-err">${e.message}</div>`;
-    toast('Push failed', 'err');
-  } finally { setLoading(false); }
+    ia.className='alert alert-err visible'; ia.textContent='✗ '+e.message;
+    toast('Push failed','err');
+  } finally {setLoading(false);}
 }
 
-/* ── Reset ─────────────────────────────────────────────────── */
-function showConfirm() { document.getElementById('confirm-box').classList.add('visible'); }
-function hideConfirm() { document.getElementById('confirm-box').classList.remove('visible'); }
-async function doReset() {
-  if (!driver) { toast('Not connected', 'err'); return; }
-  try {
+// ── Reset ─────────────────────────────────────────────────────
+function showResetConfirm(){closeModal('m-db');openModal('m-confirm');}
+async function doReset(){
+  if(!driver){toast('Not connected','err');return;}
+  try{
     await query('MATCH (n) DETACH DELETE n');
-    hideConfirm();
-    allRows = [];
-    if (network) { network.destroy(); network = null; }
-    document.getElementById('graph-empty').style.display = 'flex';
-    document.getElementById('insp-empty').style.display = 'flex';
-    document.getElementById('insp-content').style.display = 'none';
-    ['m-actors','m-artifacts','m-topics','m-edges','lc-actors','lc-tweets','lc-tags','gb-nodes','gb-edges'].forEach(id=>document.getElementById(id).textContent='0');
-    document.getElementById('m-density').textContent = '—';
-    toast('All data deleted', 'ok');
-  } catch(e) { toast('Error: '+e.message, 'err'); }
+    allRows=[];
+    if(network){network.destroy();network=null;}
+    document.getElementById('gempty').style.display='flex';
+    document.getElementById('ie').style.display='flex';
+    document.getElementById('ic').style.display='none';
+    ['lc-a','lc-t','lc-h','m-a','m-t','m-h','m-e','gb-n','gb-e'].forEach(id=>document.getElementById(id).textContent='0');
+    document.getElementById('m-d').textContent='—';
+    closeModal('m-confirm');
+    toast('All Neo4j data deleted','ok');
+  }catch(e){toast('Error: '+e.message,'err');}
 }
 
-/* ── Table render ──────────────────────────────────────────── */
-function renderTable() {
-  const tbody = document.getElementById('table-body');
-  tbody.innerHTML = '';
-  const empty = document.getElementById('table-empty');
-  if (!allRows.length) { empty.style.display='block'; return; }
-  empty.style.display = 'none';
-  allRows.slice(0,500).forEach((r,i) => {
-    const tr = document.createElement('tr');
-    tr.style.cssText = `border-bottom:1px solid var(--border);background:${i%2?'var(--surface-2)':'var(--surface)'}`;
-    tr.innerHTML = `
-      <td style="padding:8px 12px;white-space:nowrap"><span class="chip chip-blue">@${esc(r.screen_name)}</span></td>
-      <td style="padding:8px 12px;font-family:var(--mono);font-size:10px;color:var(--text-ter);white-space:nowrap">${esc(r.tweet_id.slice(-10))}</td>
-      <td style="padding:8px 12px;max-width:320px;color:var(--text-sec);font-size:12px">${esc(r.snippet)}</td>
-      <td style="padding:8px 12px">${r.hashtags.slice(0,4).map(t=>`<span class="chip chip-green">#${t}</span>`).join(' ')}</td>
-    `;
-    tbody.appendChild(tr);
+// ── Table ─────────────────────────────────────────────────────
+function renderTable(){
+  const tb=document.getElementById('tb');
+  tb.innerHTML='';
+  const empty=document.getElementById('tbl-empty');
+  if(!allRows.length){empty.style.display='block';return;}
+  empty.style.display='none';
+  allRows.slice(0,500).forEach((r,i)=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td><span class="chip chip-blue">@${esc(r.screen_name)}</span></td><td style="font-family:var(--mono);font-size:10px;color:var(--tx3)">${esc(r.tweet_id.slice(-10))}</td><td style="max-width:300px;font-size:11px;color:var(--tx2)">${esc(r.snippet)}</td><td>${r.hashtags.slice(0,4).map(t=>`<span class="chip chip-green">#${t}</span>`).join(' ')}</td>`;
+    tb.appendChild(tr);
   });
 }
 
-/* ── Toolbar ───────────────────────────────────────────────── */
-function graphFit()     { if(network) network.fit({animation:{duration:400,easingFunction:'easeInOutQuad'}}); }
-function graphZoomIn()  { if(network) network.moveTo({scale:network.getScale()*1.3,animation:{duration:200}}); }
-function graphZoomOut() { if(network) network.moveTo({scale:network.getScale()*0.75,animation:{duration:200}}); }
-function updatePhysicsBtn() {
-  document.getElementById('physics-btn').textContent = '⚛ Physics: ' + (physicsOn ? 'On' : 'Off');
-  document.getElementById('physics-btn').classList.toggle('active', physicsOn);
+// ── Graph toolbar ─────────────────────────────────────────────
+function gFit(){if(network)network.fit({animation:{duration:400,easingFunction:'easeInOutQuad'}})}
+function gZoomIn(){if(network)network.moveTo({scale:network.getScale()*1.3,animation:{duration:200}})}
+function gZoomOut(){if(network)network.moveTo({scale:network.getScale()*.75,animation:{duration:200}})}
+function updPhysBtn(){const b=document.getElementById('phys-btn');b.textContent='⚛ Physics: '+(physicsOn?'On':'Off');b.classList.toggle('active',physicsOn)}
+function togglePhysics(){if(!network)return;physicsOn=!physicsOn;network.setOptions({physics:{enabled:physicsOn}});updPhysBtn()}
+function gExportPNG(){if(!network)return;const c=document.querySelector('#gc canvas');if(!c)return;const a=document.createElement('a');a.download='falconx-graph.png';a.href=c.toDataURL('image/png');a.click();toast('Graph exported as PNG','ok')}
+function setLoading(on){document.getElementById('gloading').classList.toggle('on',on)}
+
+// ── Search ────────────────────────────────────────────────────
+function toggleSearch(){const p=document.getElementById('search-pal');const o=p.classList.toggle('open');if(o){document.getElementById('si').focus();document.getElementById('sr').innerHTML='';}}
+function doSearch(q){
+  const sr=document.getElementById('sr');
+  if(!q.trim()){sr.innerHTML='';return;}
+  const ql=q.toLowerCase(),items=[];
+  [...new Set(allRows.map(r=>r.screen_name))].filter(s=>s.toLowerCase().includes(ql)).slice(0,4).forEach(sn=>
+    items.push({cls:'sr-actor',t:'Actor',n:'@'+sn,s:allRows.filter(r=>r.screen_name===sn).length+' artifacts',id:'u_'+sn}));
+  allRows.filter(r=>r.content.toLowerCase().includes(ql)).slice(0,3).forEach(r=>
+    items.push({cls:'sr-artifact',t:'Artifact',n:'@'+r.screen_name,s:r.snippet.slice(0,60),id:'t_'+r.tweet_id}));
+  [...new Set(allRows.flatMap(r=>r.hashtags))].filter(t=>t.includes(ql)).slice(0,4).forEach(t=>
+    items.push({cls:'sr-topic',t:'Topic',n:'#'+t,s:allRows.filter(r=>r.hashtags.includes(t)).length+' uses',id:'h_'+t}));
+  if(!items.length){sr.innerHTML='<div class="sr-empty">No results found</div>';return;}
+  sr.innerHTML=items.map(i=>`<div class="sr-item" onclick="selectNode('${i.id}')"><span class="sr-badge ${i.cls}">${i.t}</span><div class="sr-body"><div class="sr-name">${i.n}</div><div class="sr-sub">${i.s}</div></div></div>`).join('');
 }
-function togglePhysics() {
-  if(!network) return;
-  physicsOn = !physicsOn;
-  network.setOptions({physics:{enabled:physicsOn}});
-  updatePhysicsBtn();
-}
-function exportPNG() {
-  if(!network) return;
-  const c = document.querySelector('#graph-canvas canvas');
-  if(!c) return;
-  const a = document.createElement('a'); a.download='falconx-graph.png'; a.href=c.toDataURL('image/png'); a.click();
-  toast('Graph exported as PNG', 'ok');
+function selectNode(nid){if(!network)return;network.selectNodes([nid]);network.focus(nid,{scale:1.5,animation:{duration:400}});showInspector(nid);document.getElementById('search-pal').classList.remove('open')}
+
+// ── Export ────────────────────────────────────────────────────
+function openExport(){openModal('m-export')}
+function dl(content,name,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([content],{type}));a.download=name;a.click();URL.revokeObjectURL(a.href)}
+
+function exportJSON(){
+  const actors=[...new Set(allRows.map(r=>r.screen_name))].map(sn=>{
+    const ar=allRows.filter(r=>r.screen_name===sn);
+    const tags=[...new Set(ar.flatMap(r=>r.hashtags))];
+    const subj=subjects.find(s=>s.username===sn);
+    return {username:sn,displayName:subj?.displayName,caseRef:subj?.caseRef,tweet_count:ar.length,topics:tags,tweets:ar.map(r=>({id:r.tweet_id,content:r.content,hashtags:r.hashtags}))};
+  });
+  const report={
+    exported_at:new Date().toISOString(),
+    platform:'FalconX OSINT Investigation Platform',
+    cases,subjects,
+    summary:{actors:actors.length,total_tweets:allRows.length,total_topics:[...new Set(allRows.flatMap(r=>r.hashtags))].length},
+    actors,
+    notes:document.getElementById('notes').value,
+  };
+  dl(JSON.stringify(report,null,2),`falconx-report-${Date.now()}.json`,'application/json');
+  toast('JSON report exported','ok'); closeModal('m-export');
 }
 
-/* ── Search ─────────────────────────────────────────────────── */
-function toggleSearch() {
-  const p = document.getElementById('search-palette');
-  const open = p.classList.toggle('open');
-  if (open) { document.getElementById('search-input').focus(); document.getElementById('search-results').innerHTML=''; }
-}
-function handleSearch(q) {
-  const rr = document.getElementById('search-results');
-  if (!q.trim()) { rr.innerHTML = ''; return; }
-  const ql = q.toLowerCase(); const items = [];
-  [...new Set(allRows.map(r=>r.screen_name))].filter(s=>s.toLowerCase().includes(ql)).slice(0,4).forEach(sn => {
-    items.push({ badge:'sr-actor', badgeTxt:'Actor', name:'@'+sn, sub:allRows.filter(r=>r.screen_name===sn).length+' artifacts', nid:'u_'+sn });
-  });
-  allRows.filter(r=>r.content.toLowerCase().includes(ql)).slice(0,3).forEach(r => {
-    items.push({ badge:'sr-artifact', badgeTxt:'Artifact', name:'@'+r.screen_name, sub:r.snippet.slice(0,60), nid:'t_'+r.tweet_id });
-  });
-  [...new Set(allRows.flatMap(r=>r.hashtags))].filter(t=>t.includes(ql)).slice(0,4).forEach(t => {
-    items.push({ badge:'sr-topic', badgeTxt:'Topic', name:'#'+t, sub:allRows.filter(r=>r.hashtags.includes(t)).length+' artifacts', nid:'h_'+t });
-  });
-  if (!items.length) { rr.innerHTML='<div class="sr-empty">No results</div>'; return; }
-  rr.innerHTML = items.map(i=>`<div class="sr-item" onclick="selectNode('${i.nid}')">
-    <span class="sr-badge ${i.badge}">${i.badgeTxt}</span>
-    <div class="sr-body"><div class="sr-name">${i.name}</div><div class="sr-sub">${i.sub}</div></div>
-  </div>`).join('');
-}
-function selectNode(nid) {
-  if(!network) return;
-  network.selectNodes([nid]);
-  network.focus(nid,{scale:1.4,animation:{duration:400}});
-  showInspector(nid);
-  document.getElementById('search-palette').classList.remove('open');
+function exportCSV(){
+  const rows=[['Actor','Tweet ID','Content','Topics','Timestamp']];
+  allRows.forEach(r=>rows.push([`@${r.screen_name}`,r.tweet_id,`"${(r.content||'').replace(/"/g,'""')}"`,r.hashtags.map(t=>`#${t}`).join(' '),new Date().toISOString()]));
+  dl(rows.map(r=>r.join(',')).join('\n'),`falconx-data-${Date.now()}.csv`,'text/csv');
+  toast('CSV exported','ok'); closeModal('m-export');
 }
 
-/* ── Keyboard ──────────────────────────────────────────────── */
-document.addEventListener('keydown', e => {
-  if ((e.ctrlKey||e.metaKey) && e.key==='k') { e.preventDefault(); toggleSearch(); }
-  if (e.key==='Escape') { document.getElementById('search-palette').classList.remove('open'); hideConfirm(); }
-  if (e.key==='f' && !e.ctrlKey && !e.metaKey && document.activeElement.tagName!=='INPUT') graphFit();
+function exportMarkdown(){
+  const actors=[...new Set(allRows.map(r=>r.screen_name))];
+  let md=`# FalconX Investigation Report\n\n`;
+  md+=`**Exported:** ${new Date().toLocaleString()}\n`;
+  md+=`**Classification:** UNCLASSIFIED // OSINT\n\n---\n\n`;
+  if(cases.length){md+=`## Cases\n\n`;cases.forEach(c=>{md+=`### ${c.name}\n- **Status:** ${c.status}\n- **Classification:** ${c.classif}\n- **Description:** ${c.desc||'—'}\n\n`;});}
+  md+=`## Investigation Subjects\n\n`;
+  subjects.forEach(s=>{md+=`### @${s.username}${s.displayName!==s.username?` (${s.displayName})`:''}\n- **Case:** ${s.caseRef||'—'}\n- **Added:** ${new Date(s.added).toLocaleDateString()}\n- **Notes:** ${s.notes||'—'}\n\n`;});
+  md+=`## Network Summary\n\n`;
+  md+=`| Metric | Value |\n|--------|-------|\n`;
+  md+=`| Total Actors | ${actors.length} |\n| Total Artifacts | ${allRows.length} |\n| Total Topics | ${[...new Set(allRows.flatMap(r=>r.hashtags))].length} |\n\n`;
+  md+=`## Actor Profiles\n\n`;
+  actors.forEach(sn=>{
+    const ar=allRows.filter(r=>r.screen_name===sn);
+    const tags=[...new Set(ar.flatMap(r=>r.hashtags))];
+    md+=`### @${sn}\n- **Tweets:** ${ar.length}\n- **Topics:** ${tags.slice(0,10).map(t=>`#${t}`).join(', ')||'None'}\n\n`;
+    md+=`**Recent Tweets:**\n\n`;
+    ar.slice(0,3).forEach(r=>{md+=`> ${r.content||'—'}\n>\n> *Tweet ID: ${r.tweet_id}*\n\n`;});
+    md+=`---\n\n`;
+  });
+  if(document.getElementById('notes').value){md+=`## Investigation Notes\n\n${document.getElementById('notes').value}\n`;}
+  dl(md,`falconx-report-${Date.now()}.md`,'text/markdown');
+  toast('Markdown report exported','ok'); closeModal('m-export');
+}
+
+// ── Notes ─────────────────────────────────────────────────────
+function saveNotes(){localStorage.setItem('fx_notes',document.getElementById('notes').value);toast('Notes saved','ok')}
+
+// ── Keyboard ──────────────────────────────────────────────────
+document.addEventListener('keydown',e=>{
+  if((e.ctrlKey||e.metaKey)&&e.key==='k'){e.preventDefault();toggleSearch()}
+  if(e.key==='Escape'){document.getElementById('search-pal').classList.remove('open');document.querySelectorAll('.modal-bg.open').forEach(m=>m.classList.remove('open'));}
+  if(e.key==='f'&&!e.ctrlKey&&!e.metaKey&&document.activeElement.tagName!=='INPUT'&&document.activeElement.tagName!=='TEXTAREA')gFit();
 });
 
-/* ── Loading ────────────────────────────────────────────────── */
-function setLoading(on) { document.getElementById('loading').classList.toggle('on', on); }
+// ── Init ──────────────────────────────────────────────────────
+const sUri=localStorage.getItem('fx_uri'),sUser=localStorage.getItem('fx_user');
+if(sUri)document.getElementById('db-uri').value=sUri;
+if(sUser)document.getElementById('db-user').value=sUser;
+document.getElementById('notes').value=localStorage.getItem('fx_notes')||'';
+renderSubjects(); renderCases();
 
-/* ── Init: restore saved creds ─────────────────────────────── */
-const savedUri  = localStorage.getItem('fx_uri');
-const savedUser = localStorage.getItem('fx_user');
-if (savedUri)  document.getElementById('cfg-uri').value  = savedUri;
-if (savedUser) document.getElementById('cfg-user').value = savedUser;
+// auto-connect if creds saved
+if(sUri&&localStorage.getItem('fx_autoconn')){connectDB();}
+document.getElementById('db-uri').addEventListener('change',()=>localStorage.setItem('fx_autoconn','1'));
 
-function showHelp() {
-  toast('Ctrl+K: Search  ·  F: Fit view  ·  Click node: Inspect', 'info', 4000);
-}
+// init view
+document.getElementById('view-table').style.display='flex';
+document.getElementById('view-graph').style.display='none';
 </script>
+<div id="toasts"></div>
 </body>
 </html>
